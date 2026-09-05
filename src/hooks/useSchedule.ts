@@ -22,6 +22,7 @@ import {
 import { datesOfMonth } from "../lib/demand";
 import { publicHolidays } from "../lib/holidays";
 import { COMPANY_ADDRESS, COMPANY_NAME } from "../lib/company";
+import { createInitialSchedule } from "../lib/sampleData";
 
 /**
  * Steht in diesem Stand überhaupt etwas? Maßstab sind Mitarbeiter und
@@ -78,7 +79,9 @@ function newEmployeeId(): string {
 export function useSchedule() {
   const [schedule, setSchedule] = useState<Schedule>(() => {
     const persisted = loadState();
-    return normalizeSchedule(persisted?.schedule);
+    // Beim allerersten Öffnen (kein gespeicherter Stand) zeigt die App die
+    // Startbelegschaft aus der Angabe des Betriebs, damit sie nicht leer ist.
+    return normalizeSchedule(persisted?.schedule ?? createInitialSchedule());
   });
   const [passwordHash, setPasswordHash] = useState<string | undefined>(
     () => loadState()?.passwordHash,

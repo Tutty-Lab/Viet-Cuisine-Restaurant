@@ -66,3 +66,53 @@ export function createSampleSchedule(): Schedule {
     shifts: [],
   };
 }
+
+/** Tage 1..bis eines Monats als ISO-Liste – für "erst ab dem X." (Eintritt). */
+function tageBis(year: number, month: number, bis: number): string[] {
+  const out: string[] = [];
+  for (let d = 1; d <= bis; d++) {
+    out.push(`${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+  }
+  return out;
+}
+
+/**
+ * Startbelegschaft, die die App beim allerersten Öffnen zeigt (September 2026),
+ * genau die zwölf Personen aus der Angabe des Betriebs mit ihren Wochenstunden.
+ *
+ * Mitten im Monat startende Verträge sind über "Urlaub" vor dem ersten
+ * Arbeitstag abgebildet – die App hat kein eigenes Eintrittsdatum, und
+ * eingetragene Tage werden beim Planen ausgespart:
+ *   - Bùi Văn Vũ arbeitet erst ab 7.9. (1.–6.9. gesperrt).
+ *   - Nguyễn Hữu Bảo arbeitet erst ab 10.9. (1.–9.9. gesperrt).
+ * Nguyễn Thị Nguyệt und Đoàn Thành Đạt stehen mit ihrem September-Wert (10 h);
+ * ab Oktober trägt der Betrieb ihre 39 h ein.
+ */
+export function createInitialSchedule(): Schedule {
+  const year = 2026;
+  const month = 9;
+  const employees: Employee[] = [
+    makeWeekly("ma-1", "Nguyễn Kiều Hồng Nhung", "VOLLZEIT", 39),
+    makeWeekly("ma-2", "Nguyễn Tuấn Anh", "TEILZEIT", 33),
+    makeWeekly("ma-3", "Nguyễn Việt Văn", "VOLLZEIT", 40),
+    makeWeekly("ma-4", "Nguyễn Thị Tân", "VOLLZEIT", 40),
+    makeWeekly("ma-5", "Trịnh Xuân Thành", "VOLLZEIT", 40),
+    makeWeekly("ma-6", "Đào Thị Hào", "TEILZEIT", 36),
+    makeWeekly("ma-7", "Nguyễn Đức Đông", "VOLLZEIT", 39),
+    makeWeekly("ma-8", "Nguyễn Thị Khánh Huyền", "VOLLZEIT", 39),
+    makeWeekly("ma-9", "Nguyễn Thị Nguyệt", "MINIJOB", 10),
+    makeWeekly("ma-10", "Đoàn Thành Đạt", "MINIJOB", 10),
+    { ...makeWeekly("ma-11", "Bùi Văn Vũ", "VOLLZEIT", 39), vacationDates: tageBis(year, month, 6) },
+    { ...makeWeekly("ma-12", "Nguyễn Hữu Bảo", "TEILZEIT", 35), vacationDates: tageBis(year, month, 9) },
+  ];
+  return {
+    companyName: COMPANY_NAME,
+    address: COMPANY_ADDRESS,
+    year,
+    month,
+    workHours: structuredClone(DEFAULT_WORK_HOURS),
+    dateOverrides: [],
+    employees,
+    shifts: [],
+  };
+}
