@@ -22,6 +22,7 @@ import { ShiftCellEditor } from "./ShiftCellEditor";
 import { ScheduleDayView } from "./ScheduleDayView";
 import { weeksOfMonth } from "../lib/weeks";
 import { employmentShortVi } from "../lib/employment";
+import { monthlyTargetMinutes } from "../lib/contract";
 
 function isWeekendKey(iso: string): boolean {
   const k = weekdayKeyOf(parseIsoDate(iso));
@@ -37,7 +38,7 @@ function cellClass(shift: Shift | undefined): string {
 export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   // Drucken (Monat/Woche) und Entsperren liegen im Tab „Bảng chấm công" –
   // dort sitzt alles, was Papier erzeugt.
-  const { schedule, validation, generate, genError, isLocked, updateEmployee } = store;
+  const { schedule, validation, generate, genError, isLocked, updateEmployee, openDays } = store;
   // Trước khi tạo lịch: hỏi ai nghỉ phép tháng này (xem UrlaubDialog).
   const [urlaubOffen, setUrlaubOffen] = useState(false);
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
@@ -316,7 +317,8 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
             <tbody>
               {schedule.employees.map((emp) => {
                 const sum = summaryByEmp.get(emp.id);
-                const diff = sum?.diffMinutes ?? -emp.targetMinutes;
+                const sollMin = monthlyTargetMinutes(emp, openDays);
+                const diff = sum?.diffMinutes ?? -sollMin;
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50/50">
                     <td className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 px-2 py-1 font-medium whitespace-nowrap">
@@ -326,7 +328,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                       {employmentShortVi(emp.employmentType)}
                     </td>
                     <td className="border-b border-slate-100 px-2 py-1 text-right text-slate-500">
-                      {emp.targetMinutes / 60}h
+                      {sollMin / 60}h
                     </td>
                     {gridDates.map((d) => {
                       const dienste = shiftMap.get(`${emp.id}#${d}`) ?? [];

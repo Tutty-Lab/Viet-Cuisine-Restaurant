@@ -470,6 +470,7 @@ export function useSchedule() {
     originalShifts,
     validation,
     peakGaps,
+    openDays,
     isLocked,
     markWeekPrinted,
     unlockMonth,
