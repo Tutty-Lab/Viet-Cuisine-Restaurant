@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Employee, EmploymentType, Schedule, Shift } from "../types";
+import type { Employee, Schedule, Shift } from "../types";
 import { generateSchedule } from "../lib/scheduler";
 import { analyzeSchedule } from "../lib/analyze";
 import { validateSchedule, type ValidationResult } from "../lib/validation";
@@ -296,24 +296,19 @@ export function useSchedule() {
   }, [pushNow]);
 
   // ----- Mitarbeiter -----
-  const addEmployee = useCallback(
-    (name: string, employmentType: EmploymentType, weeklyHours: number) => {
-      const emp: Employee = {
-        id: newEmployeeId(),
-        name: name.trim() || "Nhân viên mới",
-        employmentType,
-        // Viet Cuisine rechnet in Wochenstunden; targetMinutes wird je Monat
-        // daraus abgeleitet (contract.ts).
-        targetMinutes: 0,
-        weeklyHours: Math.max(0, Math.round(weeklyHours)),
-      };
-      setSchedule((s) => {
-        if (s.lockedAt) return s; // Monat gedruckt und gesperrt
-        return { ...s, employees: [...s.employees, emp] };
-      });
-    },
-    [],
-  );
+  const addEmployee = useCallback((data: Omit<Employee, "id">): string | null => {
+    if (latest.current.schedule.lockedAt) return null; // Monat gedruckt und gesperrt
+    const emp: Employee = {
+      ...data,
+      id: newEmployeeId(),
+      name: data.name.trim() || "Nhân viên mới",
+    };
+    setSchedule((s) => {
+      if (s.lockedAt) return s;
+      return { ...s, employees: [...s.employees, emp] };
+    });
+    return emp.id;
+  }, []);
 
   const updateEmployee = useCallback((id: string, patch: Partial<Employee>) => {
     setSchedule((s) => {
