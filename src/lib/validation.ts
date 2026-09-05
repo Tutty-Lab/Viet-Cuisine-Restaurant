@@ -1,0 +1,223 @@
+// ============================================================================
+// Validierung des Dienstplans gegen alle geforderten Regeln.
+// ============================================================================
+
+import {
+  AZUBI_MAX_MONTHLY_HOURS,
+  OWNER_MAX_SHIFT_HOURS,
+  type Employee,
+  type Shift,
+} from "../types";
+import { vacationDaysInYear, vacationEntitlement } from "./availability";
+import { monthlyTargetMinutes } from "./contract";
+import { calculatePause } from "./time";
+import { maxConsecutiveRun } from "./consecutive";
+
+export type ValidationError = {
+  employeeId?: string;
+  date?: string;
+  message: string;
+  /**
+   * "error" = der Plan ist unzulässig und muss korrigiert werden.
+   * "warning" = der Plan ist benutzbar, etwas passt nur nicht ideal.
+   *
+   * Ein zu hohes Monats-Soll ist eine WARNUNG: der Plan bleibt gültig, es
+   * fehlen nur Stunden, die der Monat gar nicht hergibt. Das als Fehler zu
+   * führen hieße, dem Betrieb einen brauchbaren Plan vorzuenthalten, weil eine
+   * Zahl in der Mitarbeiterliste zu groß ist.
+   */
+  severity?: "error" | "warning";
+};
+
+export type EmployeeSummary = {
+  employee: Employee;
+  assignedMinutes: number;
+  targetMinutes: number;
+  diffMinutes: number; // assigned - target
+  maxConsecutiveDays: number;
+  shiftCount: number;
+};
+
+export type ValidationResult = {
+  valid: boolean;
+  errors: ValidationError[];
+  summaries: EmployeeSummary[];
+};
+
+/**
+ * Höchste bezahlte Zeit an einem Tag. Der Chef darf 10 Stunden, alle anderen
+ * 9 – siehe OWNER_MAX_SHIFT_HOURS. Beide Werte liegen unter der Grenze des
+ * Arbeitszeitgesetzes (§ 3 ArbZG: bis zu 10 Stunden, wenn im Halbjahr auf 8
+ * ausgeglichen).
+ */
+const MAX_PAID_MINUTES = 9 * 60;
+const MAX_PAID_MINUTES_OWNER = OWNER_MAX_SHIFT_HOURS * 60;
+const MAX_CONSECUTIVE_DAYS = 6;
+
+export function validateSchedule(
+  employees: Employee[],
+  shifts: Shift[],
+  /** Jahr des geplanten Monats – nötig für die Urlaubsprüfung. */
+  year: number = new Date().getFullYear(),
+  /**
+   * Offene Tage des geplanten Monats – nötig, um Wochenverträge (weeklyHours)
+   * in ein Monats-Soll umzurechnen. Fehlt der Wert, gilt targetMinutes direkt.
+   */
+  openDays?: number,
+): ValidationResult {
+  const errors: ValidationError[] = [];
+  const sollOf = (e: Employee): number =>
+    openDays != null ? monthlyTargetMinutes(e, openDays) : e.targetMinutes;
+  const employeeById = new Map(employees.map((e) => [e.id, e] as const));
+
+  // Urlaub. Der Anspruch gilt fürs JAHR, geprüft wird deshalb gegen alle
+  // eingetragenen Tage dieses Jahres – nicht nur gegen den geplanten Monat.
+  // Bleibt eine WARNUNG: mehr Urlaub als der gesetzliche Mindestanspruch ist
+  // erlaubt, er kann vertraglich vereinbart oder übertragen sein.
+  for (const emp of employees) {
+    const anspruch = vacationEntitlement(emp);
+    const genommen = vacationDaysInYear(emp, year);
+    if (genommen > anspruch) {
+      errors.push({
+        employeeId: emp.id,
+        severity: "warning",
+        message:
+          `${emp.name}: đã nghỉ phép ${genommen} ngày trong năm ${year}, ` +
+          `vượt ${anspruch} ngày theo quy định.`,
+      });
+    }
+  }
+
+  // Azubi: höchstens 43 Stunden im Monat. Eine WARNUNG, kein Riegel – ob mehr
+  // erlaubt ist, steht im Ausbildungsvertrag und nicht in diesem Programm.
+  for (const emp of employees) {
+    if (emp.employmentType !== "AZUBI") continue;
+    const stunden = emp.targetMinutes / 60;
+    if (stunden > AZUBI_MAX_MONTHLY_HOURS) {
+      errors.push({
+        employeeId: emp.id,
+        severity: "warning",
+        message:
+          `${emp.name}: học nghề ${stunden}h/tháng, vượt mức ${AZUBI_MAX_MONTHLY_HOURS}h.`,
+      });
+    }
+  }
+
+  // Für Kylan gibt es bewusst KEINE Zahlengrenzen bei der Belegschaft –
+  // weder für die Anzahl der Beschäftigten noch eine eigene Stundendecke für
+  // Minijobs. Siehe Kommentar in types.ts.
+  const shiftsByEmployee = new Map<string, Shift[]>();
+  for (const emp of employees) shiftsByEmployee.set(emp.id, []);
+  for (const shift of shifts) {
+    if (!shiftsByEmployee.has(shift.employeeId)) {
+      shiftsByEmployee.set(shift.employeeId, []);
+    }
+    shiftsByEmployee.get(shift.employeeId)!.push(shift);
+  }
+
+  // Regeln je einzelner Schicht.
+  for (const shift of shifts) {
+    const presence = shift.endMinutes - shift.startMinutes;
+    const expectedPaid = presence - shift.pauseMinutes;
+    const expectedPause = calculatePause(shift.paidMinutes);
+
+    if (shift.endMinutes <= shift.startMinutes) {
+      errors.push({
+        employeeId: shift.employeeId,
+        date: shift.date,
+        message: `Giờ ra không sau giờ vào (${shift.date}).`,
+      });
+    }
+    const paidLimit = employeeById.get(shift.employeeId)?.isOwner
+      ? MAX_PAID_MINUTES_OWNER
+      : MAX_PAID_MINUTES;
+    if (shift.paidMinutes > paidLimit) {
+      errors.push({
+        employeeId: shift.employeeId,
+        date: shift.date,
+        message: `Quá ${paidLimit / 60} giờ công ngày ${shift.date}.`,
+      });
+    }
+    if (shift.paidMinutes !== expectedPaid) {
+      errors.push({
+        employeeId: shift.employeeId,
+        date: shift.date,
+        message: `Giờ công không khớp giờ vào/ra/nghỉ ngày ${shift.date}.`,
+      });
+    }
+    if (shift.pauseMinutes !== expectedPause) {
+      errors.push({
+        employeeId: shift.employeeId,
+        date: shift.date,
+        message: `Sai giờ nghỉ ngày ${shift.date}: ${shift.pauseMinutes} thay vì ${expectedPause} phút.`,
+      });
+    }
+  }
+
+  const summaries: EmployeeSummary[] = [];
+
+  for (const emp of employees) {
+    const empShifts = shiftsByEmployee.get(emp.id) ?? [];
+
+    // Höchstens ein Dienst pro Tag.
+    // Zwei Dienste an einem Tag sind erlaubt, solange sie sich nicht
+    // überschneiden – mittags und abends bei einem Laden, der zwischendurch
+    // schließt. Verboten bleibt nur, was sich überlappt.
+    const seenDates = new Set<string>();
+    for (const shift of empShifts) {
+      const ueberschneidet = empShifts.some(
+        (a) =>
+          a !== shift &&
+          a.date === shift.date &&
+          a.startMinutes < shift.endMinutes &&
+          shift.startMinutes < a.endMinutes,
+      );
+      if (ueberschneidet && !seenDates.has(shift.date)) {
+        errors.push({
+          employeeId: emp.id,
+          date: shift.date,
+          message: `Có nhiều hơn một ca ngày ${shift.date}.`,
+        });
+      }
+      seenDates.add(shift.date);
+    }
+
+    const assignedMinutes = empShifts.reduce((sum, s) => sum + s.paidMinutes, 0);
+    const maxRun = maxConsecutiveRun(empShifts.map((s) => s.date));
+    const soll = sollOf(emp);
+
+    if (assignedMinutes !== soll) {
+      // Zu WENIG verteilt heißt: der Monat gibt nicht mehr her (oder eine feste
+      // Schicht trifft das Soll nicht ganz genau) – Warnung. Zu VIEL wäre ein
+      // echter Fehler im Plan.
+      const zuViel = assignedMinutes < soll;
+      errors.push({
+        employeeId: emp.id,
+        severity: zuViel ? "warning" : "error",
+        message: zuViel
+          ? `${emp.name}: mới xếp được ${assignedMinutes / 60}h / ${soll / 60}h — tháng này không đủ ngày cho định mức đó.`
+          : `${emp.name}: xếp quá giờ định mức: ${assignedMinutes / 60} h thay vì ${soll / 60} h.`,
+      });
+    }
+    if (maxRun > MAX_CONSECUTIVE_DAYS) {
+      errors.push({
+        employeeId: emp.id,
+        message: `${emp.name}: làm quá 6 ngày liên tiếp (${maxRun}).`,
+      });
+    }
+
+    summaries.push({
+      employee: emp,
+      assignedMinutes,
+      targetMinutes: soll,
+      diffMinutes: assignedMinutes - soll,
+      maxConsecutiveDays: maxRun,
+      shiftCount: empShifts.length,
+    });
+  }
+
+  // Warnungen machen den Plan nicht ungültig – sonst blockiert eine zu große
+  // Zahl in der Mitarbeiterliste das Drucken eines sonst brauchbaren Plans.
+  const echteFehler = errors.filter((e) => e.severity !== "warning");
+  return { valid: echteFehler.length === 0, errors, summaries };
+}

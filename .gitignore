@@ -1,0 +1,20 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+
+# Zugangsdaten (Supabase/Postgres) – dürfen NIE ins Repository.
+.env
+.env.*
+!.env.example
+.vercel
+.vscode/*
+!.vscode/extensions.json
+.claude/
+*.tsbuildinfo
+.env*
+
+# Lokale Review-Fixture: wird von der App NICHT geladen, nur von Hand ueber
+# die Konsole in den LocalStorage geschoben.
+public/demo-state.json

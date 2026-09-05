@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-100 text-slate-800 antialiased;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* iOS Safari zoomt beim Fokussieren automatisch hinein, wenn ein Feld eine
+   Schriftgröße < 16px hat. Auf Touch-Geräten daher überall mindestens 16px –
+   damit bleibt die Ansicht beim Tippen stehen. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Farbcodierung der Schichten im Dienstplan */
+.shift-early {
+  @apply bg-amber-50 text-amber-900 border-amber-200;
+}
+.shift-late {
+  @apply bg-indigo-50 text-indigo-900 border-indigo-200;
+}
+.shift-free {
+  @apply bg-slate-50 text-slate-400 border-slate-200;
+}
+.shift-custom {
+  @apply ring-2 ring-rose-300;
+}
+
+/* Druckbereich am Bildschirm ausgeblendet, nur beim Drucken sichtbar. */
+.print-area {
+  display: none;
+}
+
+/* Bühne für den PDF-Export: muss wirklich gerendert sein (display:none kann
+   html2canvas nicht aufnehmen), liegt deshalb nur außerhalb des Sichtfelds. */
+.pdf-stage {
+  position: absolute;
+  top: 0;
+  left: -10000px;
+  width: 210mm;
+  background: #fff;
+  pointer-events: none;
+}
+
+/* ===================== Druck: Stundenzettel ===================== */
+@media print {
+  body {
+    background: #fff;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-area {
+    display: block !important;
+  }
+  .stundenzettel-page {
+    page-break-after: always;
+    padding: 0;
+  }
+  .stundenzettel-page:last-child {
+    page-break-after: auto;
+  }
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+}
