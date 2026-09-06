@@ -1,12 +1,6 @@
 import { useMemo, useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
-import type { Employee, Shift } from "../types";
-import {
-  vacationDatesInMonth,
-  vacationDaysInYear,
-  vacationEntitlement,
-} from "../lib/availability";
-import { VacationPicker } from "./VacationPicker";
+import type { Shift } from "../types";
 import {
   datesOfMonth,
   parseIsoDate,
@@ -38,9 +32,7 @@ function cellClass(shift: Shift | undefined): string {
 export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   // Drucken (Monat/Woche) und Entsperren liegen im Tab „Bảng chấm công" –
   // dort sitzt alles, was Papier erzeugt.
-  const { schedule, validation, generate, genError, isLocked, updateEmployee, openDays } = store;
-  // Trước khi tạo lịch: hỏi ai nghỉ phép tháng này (xem UrlaubDialog).
-  const [urlaubOffen, setUrlaubOffen] = useState(false);
+  const { schedule, validation, generate, genError, isLocked, openDays } = store;
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
   // Mặc định: điện thoại -> xem theo ngày, màn lớn -> bảng tháng.
   const [view, setView] = useState<"grid" | "day" | "week">(() =>
@@ -128,24 +120,10 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
       {/* Alles Sichtbare liegt im no-print-Block; beim Drucken bleibt nur der
           Druckbereich ganz unten übrig. */}
       <div className="no-print">
-      {urlaubOffen && (
-        <UrlaubDialog
-          employees={schedule.employees}
-          year={schedule.year}
-          month={schedule.month}
-          updateEmployee={updateEmployee}
-          isClosed={(iso) => closedByDate.has(iso)}
-          onCancel={() => setUrlaubOffen(false)}
-          onConfirm={() => {
-            setUrlaubOffen(false);
-            generate();
-          }}
-        />
-      )}
       {/* Thanh thao tác */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <button
-          onClick={() => setUrlaubOffen(true)}
+          onClick={() => generate()}
           disabled={!hasEmployees || isLocked}
           title={isLocked ? "Lịch tháng này đã khóa" : undefined}
           className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
@@ -430,117 +408,5 @@ function SummaryRow({
       <td className="border-t border-l border-slate-200" />
       <td className="border-t border-l border-slate-200" />
     </tr>
-  );
-}
-
-/**
- * Abfrage vor dem Erzeugen des Monatsplans: wer hat in diesem Monat Urlaub?
- *
- * Als Zwischenschritt gedacht: beim Klick auf "Tạo lịch làm việc" wird noch
- * einmal nach Urlaub gefragt, bevor der Plan entsteht. Der Automat sucht die
- * Tage NICHT selbst aus – wer wann frei nimmt, ist eine Absprache im Betrieb.
- * Hier wird nur eingesammelt, was schon feststeht, und sichtbar gemacht, wer
- * über seinen Jahresanspruch kommt.
- *
- * Dieselben Felder gibt es auch im Tab "Nhân viên". Das ist Absicht: dort
- * pflegt man die Belegschaft in Ruhe, hier wird man vor dem Planen noch einmal
- * daran erinnert, weil ein vergessener Urlaubstag erst auffällt, wenn der
- * fertige Plan schon hängt.
- */
-function UrlaubDialog({
-  employees,
-  year,
-  month,
-  updateEmployee,
-  isClosed,
-  onCancel,
-  onConfirm,
-}: {
-  employees: Employee[];
-  year: number;
-  month: number;
-  updateEmployee: (id: string, patch: Partial<Employee>) => void;
-  isClosed: (iso: string) => boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const toggleUrlaub = (emp: Employee, iso: string) => {
-    const jetzt = emp.vacationDates ?? [];
-    updateEmployee(emp.id, {
-      vacationDates: jetzt.includes(iso)
-        ? jetzt.filter((d) => d !== iso)
-        : [...jetzt, iso].sort(),
-    });
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4">
-      <div className="w-full max-w-2xl rounded-lg bg-white shadow-xl my-8">
-        <div className="border-b border-slate-200 px-5 py-4">
-          <h3 className="text-base font-semibold text-slate-900">
-            Ai nghỉ phép trong {monthLabel(year, month)}?
-          </h3>
-          <p className="mt-1 text-sm text-slate-500">
-            Chọn ngày nghỉ trước khi tạo lịch. App <b>không tự chọn</b> ngày nghỉ — những
-            ngày này sẽ được chừa ra khi xếp ca. Bỏ trống nếu không ai nghỉ.
-          </p>
-        </div>
-
-        <div className="divide-y divide-slate-100 px-5">
-          {employees.map((emp) => {
-            const imMonat = vacationDatesInMonth(emp, year, month);
-            const jahr = vacationDaysInYear(emp, year);
-            const anspruch = vacationEntitlement(emp);
-            const zuViel = jahr > anspruch;
-            return (
-              <div key={emp.id} className="py-3">
-                <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="font-medium text-slate-800">{emp.name}</span>
-                  <span className="text-xs text-slate-400">
-                    {employmentShortVi(emp.employmentType)}
-                  </span>
-                  <span
-                    className={`text-xs ${zuViel ? "text-rose-600 font-medium" : "text-slate-400"}`}
-                  >
-                    {jahr}/{anspruch} ngày trong năm {year}
-                    {zuViel && " ⚠ vượt quy định"}
-                  </span>
-                </div>
-                <div className="mt-1.5">
-                  <VacationPicker
-                    year={year}
-                    month={month}
-                    selected={emp.vacationDates ?? []}
-                    onToggle={(iso) => toggleUrlaub(emp, iso)}
-                    isClosed={isClosed}
-                  />
-                  {imMonat.length > 0 && (
-                    <div className="mt-1 text-xs text-slate-500">
-                      Đã chọn:{" "}
-                      {imMonat.map((iso) => `${Number(iso.slice(8))}.${iso.slice(5, 7)}`).join(", ")}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
-          <button
-            onClick={onCancel}
-            className="rounded px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
-          >
-            Huỷ
-          </button>
-          <button
-            onClick={onConfirm}
-            className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
-          >
-            Tạo lịch
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }

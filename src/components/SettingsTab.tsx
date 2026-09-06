@@ -273,6 +273,38 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
           khách.
         </p>
 
+        {/* Chọn nhanh: số ngày + các ngày làm trong tuần. Bấm để bật/tắt. */}
+        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div className="text-sm font-medium text-slate-700 mb-2">Ngày làm trong tuần</div>
+          <div className="flex flex-wrap gap-1.5">
+            {WEEKDAY_ORDER.map((key) => {
+              const open = !schedule.workHours.closedWeekdays?.[key];
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={open}
+                  onClick={() => setWeekdayClosed(key, open)}
+                  className={`rounded-full px-3 py-1.5 text-sm font-medium border transition-colors ${
+                    open
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-300 bg-white text-slate-400 line-through"
+                  }`}
+                >
+                  {WEEKDAY_SHORT_VI[key]}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-2 text-xs text-slate-500">
+            Mở{" "}
+            <b>
+              {WEEKDAY_ORDER.filter((k) => !schedule.workHours.closedWeekdays?.[k]).length} ngày/tuần
+            </b>{" "}
+            · bấm vào thứ để bật/tắt ngày làm. Định mức tháng tự tính lại theo số ngày mở.
+          </div>
+        </div>
+
         <div>
           {WEEKDAY_ORDER.map((key) => (
             <BlockRow

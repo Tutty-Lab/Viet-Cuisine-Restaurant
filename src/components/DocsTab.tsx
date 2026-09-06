@@ -4,7 +4,6 @@ import {
   WEEKDAY_LABELS_VI,
   type WeekdayKey,
 } from "../lib/demand";
-import { URLAUB_DAYS_PER_YEAR } from "../types";
 import { SHIFT_LENGTHS } from "../lib/shifts";
 import { PEAK_WINDOWS_BY_WEEKDAY } from "../lib/scheduler";
 import { calculatePause, minutesToTime, presenceFromPaid } from "../lib/time";
@@ -130,22 +129,6 @@ export function DocsTab() {
           <li>
             <b>Không giới hạn</b> số nhân viên, cũng không có trần giờ riêng cho Minijob.
             Các tiệm khác có vì chủ nói rõ; ở đây chỉ nêu đội hình hiện tại.
-          </li>
-          <li>
-            <b>Nghỉ phép (Urlaub)</b>: đặt cho từng người ở tab <b>Nhân viên</b>. Ngày đã
-            đánh dấu thì app <b>không xếp ca</b>.
-            <br />
-            <span className="text-slate-500">
-              Tính theo <b>ngày làm việc</b> đúng như luật Đức (§ 3 BUrlG): đi làm 1 tiếng
-              cũng hết trọn một ngày phép. Mức quy định một năm:{" "}
-              <b>toàn thời gian {URLAUB_DAYS_PER_YEAR.VOLLZEIT} ngày</b>, bán thời gian{" "}
-              {URLAUB_DAYS_PER_YEAR.TEILZEIT} ngày, Minijob {URLAUB_DAYS_PER_YEAR.MINIJOB} ngày,
-              học nghề {URLAUB_DAYS_PER_YEAR.AZUBI} ngày. Vượt mức chỉ <b>cảnh báo</b> chứ không
-              chặn: nghỉ nhiều hơn mức tối thiểu của luật là được phép, có thể ghi trong
-              hợp đồng hoặc chuyển từ năm trước sang. Đếm theo <b>cả năm</b> chứ không phải
-              từng tháng, vì quy định là quy định năm. App <b>không bao giờ tự chọn</b>{" "}
-              ngày nghỉ — ai nghỉ ngày nào là chuyện thoả thuận trong quán.
-            </span>
           </li>
         </ul>
       </Section>

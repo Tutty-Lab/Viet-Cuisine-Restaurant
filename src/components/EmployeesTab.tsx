@@ -1,18 +1,12 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee, EmploymentType } from "../types";
 import { splitTargetHours } from "../lib/splitTargetHours";
-import { isDayClosed, resolveDay } from "../lib/workHours";
+import { resolveDay } from "../lib/workHours";
 import { publicHolidays } from "../lib/holidays";
 import { datesOfMonth } from "../lib/demand";
 import { monthlyTargetMinutes } from "../lib/contract";
 import { employmentLabelVi, employmentShortVi } from "../lib/employment";
-import {
-  vacationDatesInMonth,
-  vacationDaysInYear,
-  vacationEntitlement,
-} from "../lib/availability";
-import { VacationPicker } from "./VacationPicker";
 
 const inputClass =
   "rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
@@ -41,7 +35,6 @@ type Draft = {
   employmentType: EmploymentType;
   weekly: string;
   fixed: boolean;
-  vacationDates: string[];
 };
 
 function draftFrom(emp?: Employee): Draft {
@@ -50,7 +43,6 @@ function draftFrom(emp?: Employee): Draft {
     employmentType: emp?.employmentType ?? "VOLLZEIT",
     weekly: emp?.weeklyHours != null ? String(emp.weeklyHours) : "39",
     fixed: !!emp?.fixedShift,
-    vacationDates: emp?.vacationDates ?? [],
   };
 }
 
@@ -63,7 +55,6 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
     targetMinutes: 0, // wird je Monat aus weeklyHours abgeleitet (contract.ts)
     weeklyHours: weekly,
     fixedShift: d.fixed ? { startMinutes: FIXED_START, endMinutes: FIXED_END } : undefined,
-    vacationDates: d.vacationDates.length > 0 ? [...d.vacationDates].sort() : undefined,
   };
 }
 
@@ -75,10 +66,6 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
   const overrides = useMemo(
     () => Object.fromEntries(schedule.dateOverrides.map((o) => [o.date, o])),
     [schedule.dateOverrides],
-  );
-  const isClosed = useCallback(
-    (iso: string) => isDayClosed(schedule.workHours, iso, holidays, overrides),
-    [schedule.workHours, holidays, overrides],
   );
   const openDays = useMemo(
     () =>
@@ -140,7 +127,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                 onClick={() => setOffen(emp.id)}
                 className="w-full text-left rounded-lg border border-slate-200 p-3 flex items-center gap-3 hover:bg-slate-50 active:bg-slate-100 transition-colors"
               >
-                <EmployeeSummaryRow emp={emp} openDays={openDays} year={schedule.year} />
+                <EmployeeSummaryRow emp={emp} openDays={openDays} />
                 <span className="text-slate-300 text-lg leading-none">›</span>
               </button>
             </li>
@@ -162,10 +149,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
         <EmployeeSheet
           key={bearbeitet?.id ?? "new"}
           employee={bearbeitet}
-          year={schedule.year}
-          month={schedule.month}
           openDays={openDays}
-          isClosed={isClosed}
           onClose={() => setOffen(null)}
           onSave={(felder) => {
             if (bearbeitet) updateEmployee(bearbeitet.id, felder);
@@ -190,15 +174,12 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
 function EmployeeSummaryRow({
   emp,
   openDays,
-  year,
 }: {
   emp: Employee;
   openDays: number;
-  year: number;
 }) {
   const monatH = monthlyTargetMinutes(emp, openDays) / 60;
   const info = splitInfo(monatH, emp.employmentType);
-  const urlaubJahr = vacationDaysInYear(emp, year);
 
   return (
     <div className="flex-1 min-w-0">
@@ -218,9 +199,6 @@ function EmployeeSummaryRow({
             ca cố định 6:30–14:30
           </span>
         ) : null}
-        {urlaubJahr > 0 ? (
-          <span className="text-slate-400">· nghỉ {urlaubJahr} ngày/năm</span>
-        ) : null}
       </div>
     </div>
   );
@@ -232,25 +210,18 @@ function EmployeeSummaryRow({
  */
 function EmployeeSheet({
   employee,
-  year,
-  month,
   openDays,
-  isClosed,
   onClose,
   onSave,
   onDelete,
 }: {
   employee?: Employee;
-  year: number;
-  month: number;
   openDays: number;
-  isClosed: (iso: string) => boolean;
   onClose: () => void;
   onSave: (felder: Omit<Employee, "id">) => void;
   onDelete?: () => void;
 }) {
   const [d, setD] = useState<Draft>(() => draftFrom(employee));
-  const [urlaubOffen, setUrlaubOffen] = useState(false);
   const [loeschFrage, setLoeschFrage] = useState(false);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) =>
@@ -259,25 +230,6 @@ function EmployeeSheet({
   const weekly = Math.max(0, Math.round(Number(d.weekly) || 0));
   const monatH = Math.round((weekly * openDays) / 6);
   const info = splitInfo(monatH, d.employmentType);
-
-  // Urlaub für die Anzeige aus dem ENTWURF berechnen (nicht aus dem Mitarbeiter).
-  const draftEmp: Employee = { id: "draft", ...draftToEmployee(d) };
-  const imJahr = vacationDaysInYear(draftEmp, year);
-  const anspruch = vacationEntitlement(draftEmp);
-  const imMonat = vacationDatesInMonth(draftEmp, year, month);
-  const zuVielUrlaub = imJahr > anspruch;
-
-  const toggleUrlaub = (iso: string) => {
-    setD((prev) => {
-      const jetzt = prev.vacationDates;
-      return {
-        ...prev,
-        vacationDates: jetzt.includes(iso)
-          ? jetzt.filter((x) => x !== iso)
-          : [...jetzt, iso].sort(),
-      };
-    });
-  };
 
   return (
     <div
@@ -356,43 +308,6 @@ function EmployeeSheet({
               </span>
             </span>
           </label>
-
-          {/* Nghỉ phép */}
-          <div className="border-t border-slate-100 pt-3">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => setUrlaubOffen((v) => !v)}
-                className="rounded border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-50"
-              >
-                Nghỉ phép {urlaubOffen ? "▲" : "▼"}
-              </button>
-              <span className={zuVielUrlaub ? "text-amber-700 font-medium" : "text-slate-500"}>
-                {imJahr}/{anspruch} ngày trong năm {year}
-                {zuVielUrlaub && " — vượt quy định"}
-              </span>
-              {imMonat.length > 0 && (
-                <span className="text-slate-500">
-                  · tháng này: {imMonat.map((x) => Number(x.slice(8))).join(", ")}
-                </span>
-              )}
-            </div>
-            {urlaubOffen && (
-              <div className="mt-2">
-                <VacationPicker
-                  year={year}
-                  month={month}
-                  selected={d.vacationDates}
-                  onToggle={toggleUrlaub}
-                  isClosed={isClosed}
-                />
-                <p className="mt-1 text-[11px] text-slate-400">
-                  Tính theo <b>ngày làm việc</b> (§ 3 BUrlG). Vượt mức chỉ <b>cảnh báo</b>.
-                  Cũng dùng để đánh dấu ngày <b>chưa vào làm</b> (VD vào giữa tháng).
-                </p>
-              </div>
-            )}
-          </div>
         </div>
 
         <div className="sticky bottom-0 bg-white border-t border-slate-200 px-4 py-3">

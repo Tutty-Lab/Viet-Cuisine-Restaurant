@@ -10,9 +10,8 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSchedule } from "../scheduler";
-import { validateSchedule } from "../validation";
 import { DEFAULT_WORK_HOURS } from "../workHours";
-import { URLAUB_DAYS_PER_YEAR, type Employee } from "../../types";
+import type { Employee } from "../../types";
 
 const YEAR = 2026;
 
@@ -75,37 +74,7 @@ describe("Urlaub", () => {
     expect(trotzdem.map((s) => s.date)).toEqual([]);
   });
 
-  it("vượt quy định thì cảnh báo, không phải lỗi", () => {
-    // Ein Tag mehr als der Anspruch.
-    const zuViele = Array.from(
-      { length: URLAUB_DAYS_PER_YEAR.TEILZEIT + 1 },
-      (_, i) => `${YEAR}-03-${String(i + 1).padStart(2, "0")}`,
-    );
-    const team = belegschaft({ vacationDates: zuViele });
-    const result = validateSchedule(team, [], YEAR);
-
-    const warnung = result.errors.find((e) => e.employeeId === "a");
-    expect(warnung?.severity).toBe("warning");
-    expect(warnung?.message).toContain("nghỉ phép");
-    // Warnungen machen den Plan nicht ungültig.
-    expect(result.errors.filter((e) => e.severity !== "warning")).toEqual([]);
-  });
-
-  it("đúng số ngày quy định thì không cảnh báo", () => {
-    const genau = Array.from(
-      { length: URLAUB_DAYS_PER_YEAR.TEILZEIT },
-      (_, i) => `${YEAR}-03-${String(i + 1).padStart(2, "0")}`,
-    );
-    const team = belegschaft({ vacationDates: genau });
-    const result = validateSchedule(team, [], YEAR);
-    expect(result.errors.filter((e) => e.message.includes("nghỉ phép"))).toEqual([]);
-  });
-
-  it("nghỉ phép năm khác không tính vào năm này", () => {
-    const team = belegschaft({
-      vacationDates: [`${YEAR - 1}-03-01`, `${YEAR - 1}-03-02`, `${YEAR}-03-01`],
-    });
-    const result = validateSchedule(team, [], YEAR);
-    expect(result.errors.filter((e) => e.message.includes("nghỉ phép"))).toEqual([]);
-  });
+  // Viet Cuisine verwaltet keinen Urlaub mehr – es gibt deshalb auch keine
+  // Urlaubs-Warnung. Eingetragene Tage werden vom Scheduler weiterhin
+  // ausgespart (siehe oben), aber nicht mehr gegen einen Jahresanspruch geprüft.
 });
