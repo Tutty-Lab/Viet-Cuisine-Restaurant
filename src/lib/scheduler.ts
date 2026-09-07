@@ -1006,6 +1006,22 @@ function weekDayRoomLeft(
   return n < grenze;
 }
 
+/**
+ * Gibt das Entfernen dieses Dienstes den Tag der Person wirklich frei?
+ *
+ * Nur wenn KEIN weiterer Dienst derselben Person am selben Tag hängt. Seit
+ * geteilte Dienste erlaubt sind (mittags UND abends), bleibt der Tag sonst
+ * belegt. Das ist wichtig für das Wochentage-Limit: der abgegebene Tag darf nur
+ * dann als „aufgegeben" (statt) zählen, wenn er dadurch tatsächlich frei wird –
+ * sonst schleust ein Umzug/Tausch einen vierten Wochentag durch, obwohl der
+ * dritte weiter besetzt bleibt.
+ */
+function shiftFreesDay(state: SchedulerState, shift: Shift): boolean {
+  return !state.shifts.some(
+    (x) => x !== shift && x.employeeId === shift.employeeId && x.date === shift.date,
+  );
+}
+
 function placeOneShift(state: SchedulerState, employee: Employee): boolean {
   const remaining = state.remaining.get(employee.id)!;
   if (remaining <= 0) return false;
@@ -1316,6 +1332,9 @@ function ownerDayOk(state: SchedulerState, employeeId: string, isoDate: string, 
   // und die Reparaturlaeufe danach haben sie klaglos wieder aufgehoben.
   const wer = state.byId.get(employeeId);
   if (wer && !mayWorkOn(wer, isoDate)) return false;
+  // Wochentage-Obergrenze gilt fuer JEDEN – auch dieses Tor muss sie halten,
+  // sonst setzt ein Reparaturlauf jemanden auf einen vierten Tag der Woche.
+  if (wer && !weekDayRoomLeft(state, wer, isoDate, statt)) return false;
 
   if (!state.owners.has(employeeId)) return true;
   if (weekdayKeyOf(parseIsoDate(isoDate)) === OWNER_FREE_WEEKDAY) return false;
@@ -1396,10 +1415,15 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
       const presence = presenceFromPaid(shift.paidMinutes);
       for (const to of state.dates) {
         if (to === from) continue;
+        if (!mayWorkOn(employee, to)) continue; // fester freier Wochentag / Urlaub
+        // `from` zählt nur dann als abgegeben, wenn dieser Umzug den Quelltag
+        // wirklich frei macht (bei geteilten Diensten sonst nicht).
+        const gibtFrom = shiftFreesDay(state, shift) ? from : undefined;
+        if (!weekDayRoomLeft(state, employee, to, gibtFrom)) continue; // Wochentage aufgebraucht
         // Der Zieltag muss noch Platz haben – ein freier Block und genug
         // Stunden bis zur Tagesgrenze.
         if (!fitsOnDay(state, employee, to, shift.paidMinutes)) continue;
-        if (!ownerDayOk(state, employee.id, to, from)) continue;
+        if (!ownerDayOk(state, employee.id, to, gibtFrom)) continue;
         const day = state.dayOf(to);
         if (day.closed || spanFor(day, employee, to) < presence) continue; // zu / passt nicht
         // 6-Tage-Regel prüfen, als ob dieser Dienst schon weg wäre.
@@ -1488,6 +1512,16 @@ function canSwap(state: SchedulerState, a: Shift, b: Shift, allowSameEmployee = 
     if (!fitsOnDay(state, state.byId.get(a.employeeId)!, b.date, a.paidMinutes)) return false;
     if (!fitsOnDay(state, state.byId.get(b.employeeId)!, a.date, b.paidMinutes)) return false;
 
+    // Fester freier Wochentag / Wochentage-Obergrenze am jeweiligen Zieltag.
+    const empA = state.byId.get(a.employeeId)!;
+    const empB = state.byId.get(b.employeeId)!;
+    if (!mayWorkOn(empA, b.date) || !mayWorkOn(empB, a.date)) return false;
+    // Ein abgegebener Tag zählt nur, wenn der Tausch ihn wirklich frei macht.
+    const gibtA = shiftFreesDay(state, a) ? a.date : undefined;
+    const gibtB = shiftFreesDay(state, b) ? b.date : undefined;
+    if (!weekDayRoomLeft(state, empA, b.date, gibtA)) return false;
+    if (!weekDayRoomLeft(state, empB, a.date, gibtB)) return false;
+
     // 6-Tage-Regel für beide, jeweils ohne den eigenen alten Dienst.
     const trialA = workedWithout(state, a);
     if (consecutiveRunLengthWith(trialA, b.date) > 6) return false;
@@ -1495,9 +1529,10 @@ function canSwap(state: SchedulerState, a: Shift, b: Shift, allowSameEmployee = 
     if (consecutiveRunLengthWith(trialB, a.date) > 6) return false;
   }
 
-  // Für den Chef gelten eigene Regeln – auch beim Tausch.
-  if (!ownerDayOk(state, a.employeeId, b.date, a.date)) return false;
-  if (!ownerDayOk(state, b.employeeId, a.date, b.date)) return false;
+  // Für den Chef gelten eigene Regeln – auch beim Tausch. Der abgegebene Tag
+  // zählt auch hier nur, wenn er durch den Tausch wirklich frei wird.
+  if (!ownerDayOk(state, a.employeeId, b.date, shiftFreesDay(state, a) ? a.date : undefined)) return false;
+  if (!ownerDayOk(state, b.employeeId, a.date, shiftFreesDay(state, b) ? b.date : undefined)) return false;
 
   // Die getauschten Längen müssen in das jeweilige Fenster passen.
   // Die Spanne richtet sich nach der Person, die den Dienst übernimmt.
@@ -1615,11 +1650,19 @@ function trySwaps(state: SchedulerState, employeesById: Map<string, Employee>): 
       if (!fitsOnDay(state, empA, b.date, a.paidMinutes)) continue;
       if (!fitsOnDay(state, empB, a.date, b.paidMinutes)) continue;
 
+      // Fester freier Wochentag / Wochentage-Obergrenze am jeweiligen Zieltag.
+      // Der abgegebene Tag zählt nur, wenn der Tausch ihn wirklich frei macht.
+      if (!mayWorkOn(empA, b.date) || !mayWorkOn(empB, a.date)) continue;
+      const gibtA = shiftFreesDay(state, a) ? a.date : undefined;
+      const gibtB = shiftFreesDay(state, b) ? b.date : undefined;
+      if (!weekDayRoomLeft(state, empA, b.date, gibtA)) continue;
+      if (!weekDayRoomLeft(state, empB, a.date, gibtB)) continue;
+
       // Und die Sonderregeln des Chefs (kein Samstag, fünf Tage die Woche).
       // Diese Funktion prüft alles selbst, statt canSwap zu rufen – die
       // Owner-Regel darf hier deshalb nicht fehlen.
-      if (!ownerDayOk(state, empA.id, b.date, a.date)) continue;
-      if (!ownerDayOk(state, empB.id, a.date, b.date)) continue;
+      if (!ownerDayOk(state, empA.id, b.date, gibtA)) continue;
+      if (!ownerDayOk(state, empB.id, a.date, gibtB)) continue;
 
       // Die getauschten Längen müssen in das jeweilige Fenster passen.
       const dayA = state.dayOf(a.date);
