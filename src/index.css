@@ -72,6 +72,13 @@ body {
   }
   @page {
     size: A4;
-    margin: 14mm;
+    margin: 0;
   }
+}
+
+@media print {
+  /* Kein Seitenrand auf @page => der Browser druckt KEINE Kopf-/Fusszeile mehr
+     (kein Dokumenttitel, kein Datum, keine .vercel.app-URL). Der Rand liegt
+     stattdessen als Innenabstand auf der gedruckten Seite. */
+  .stundenzettel-page { padding: 14mm !important; }
 }
