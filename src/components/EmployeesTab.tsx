@@ -7,13 +7,14 @@ import { publicHolidays } from "../lib/holidays";
 import { datesOfMonth, WEEKDAY_SHORT_VI, type WeekdayKey } from "../lib/demand";
 import { monthlyTargetMinutes } from "../lib/contract";
 import { employmentLabelVi, employmentShortVi } from "../lib/employment";
+import { minutesToTime, timeToMinutes } from "../lib/time";
 
 const inputClass =
   "rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
 
-/** Feste Frühschicht: 6:30–14:30. */
-const FIXED_START = 6 * 60 + 30;
-const FIXED_END = 14 * 60 + 30;
+/** Voreinstellung der festen Schicht, wenn eingeschaltet: 6:30–14:30. */
+const FIXED_START_DEFAULT = "06:30";
+const FIXED_END_DEFAULT = "14:30";
 
 const WEEKDAY_ORDER: WeekdayKey[] = [
   "monday",
@@ -45,6 +46,8 @@ type Draft = {
   employmentType: EmploymentType;
   weekly: string;
   fixed: boolean;
+  fixedStart: string; // "HH:MM"
+  fixedEnd: string; // "HH:MM"
   availableWeekdays: WeekdayKey[]; // [] = mọi ngày
   maxDays: string;
 };
@@ -55,21 +58,40 @@ function draftFrom(emp?: Employee): Draft {
     employmentType: emp?.employmentType ?? "VOLLZEIT",
     weekly: emp?.weeklyHours != null ? String(emp.weeklyHours) : "39",
     fixed: !!emp?.fixedShift,
+    // Vorhandene feste Schicht übernehmen, sonst die Voreinstellung anzeigen.
+    fixedStart: emp?.fixedShift ? minutesToTime(emp.fixedShift.startMinutes) : FIXED_START_DEFAULT,
+    fixedEnd: emp?.fixedShift ? minutesToTime(emp.fixedShift.endMinutes) : FIXED_END_DEFAULT,
     availableWeekdays: emp?.availableWeekdays ?? [],
     maxDays: emp?.maxDaysPerWeek ? String(emp.maxDaysPerWeek) : "",
   };
+}
+
+/** Wandelt "HH:MM" in Minuten; bei Unsinn die Voreinstellung. */
+function safeMinutes(time: string, fallback: string): number {
+  try {
+    return timeToMinutes(time);
+  } catch {
+    return timeToMinutes(fallback);
+  }
 }
 
 /** Entwurf -> Mitarbeiter-Felder (ohne id). */
 function draftToEmployee(d: Draft): Omit<Employee, "id"> {
   const weekly = Math.max(0, Math.round(Number(d.weekly) || 0));
   const tage = Number(d.maxDays);
+  const fixedStart = safeMinutes(d.fixedStart, FIXED_START_DEFAULT);
+  const fixedEnd = safeMinutes(d.fixedEnd, FIXED_END_DEFAULT);
   return {
     name: d.name.trim() || "Nhân viên mới",
     employmentType: d.employmentType,
     targetMinutes: 0, // wird je Monat aus weeklyHours abgeleitet (contract.ts)
     weeklyHours: weekly,
-    fixedShift: d.fixed ? { startMinutes: FIXED_START, endMinutes: FIXED_END } : undefined,
+    // Ende muss nach Beginn liegen – sonst die feste Schicht ignorieren, statt
+    // eine kaputte Zeitspanne zu speichern.
+    fixedShift:
+      d.fixed && fixedEnd > fixedStart
+        ? { startMinutes: fixedStart, endMinutes: fixedEnd }
+        : undefined,
     availableWeekdays:
       d.availableWeekdays.length === 0 || d.availableWeekdays.length === 7
         ? undefined
@@ -216,7 +238,8 @@ function EmployeeSummaryRow({
         </span>
         {emp.fixedShift ? (
           <span className="rounded bg-indigo-50 text-indigo-700 px-1.5 py-0.5">
-            ca cố định 6:30–14:30
+            ca cố định {minutesToTime(emp.fixedShift.startMinutes)}–
+            {minutesToTime(emp.fixedShift.endMinutes)}
           </span>
         ) : null}
       </div>
@@ -314,20 +337,45 @@ function EmployeeSheet({
             Tháng này ≈ <b>{monatH}h</b> · {info.text}
           </div>
 
-          <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={d.fixed}
-              onChange={(e) => set("fixed", e.target.checked)}
-            />
-            <span>
-              Ca cố định <b>6:30–14:30</b>
-              <span className="block text-xs text-slate-400">
-                Chỉ làm đúng khung này (chuẩn bị sớm trước giờ mở cửa).
+          <div>
+            <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={d.fixed}
+                onChange={(e) => set("fixed", e.target.checked)}
+              />
+              <span>
+                Ca cố định
+                <span className="block text-xs text-slate-400">
+                  Chỉ làm đúng khung giờ này (đặt giờ tuỳ ý bên dưới).
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+
+            {d.fixed && (
+              <div className="mt-2 ml-6 flex flex-wrap items-center gap-2 text-sm text-slate-700">
+                <span className="text-xs text-slate-500">Khung giờ</span>
+                <input
+                  type="time"
+                  className={inputClass}
+                  value={d.fixedStart}
+                  onChange={(e) => set("fixedStart", e.target.value)}
+                />
+                <span className="text-slate-400">–</span>
+                <input
+                  type="time"
+                  className={inputClass}
+                  value={d.fixedEnd}
+                  onChange={(e) => set("fixedEnd", e.target.value)}
+                />
+                {safeMinutes(d.fixedEnd, FIXED_END_DEFAULT) <=
+                  safeMinutes(d.fixedStart, FIXED_START_DEFAULT) && (
+                  <span className="text-xs text-rose-600">Giờ kết thúc phải sau giờ bắt đầu.</span>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Ngày làm trong tuần + số ngày/tuần. */}
           <div className="border-t border-slate-100 pt-3">

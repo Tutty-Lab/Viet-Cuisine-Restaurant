@@ -34,6 +34,9 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   // dort sitzt alles, was Papier erzeugt.
   const { schedule, validation, generate, genError, isLocked, openDays } = store;
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
+  // Zweiter Klick, um einen gesperrten (gedruckten) Monat neu zu erzeugen –
+  // ohne native Rückfrage, die manche In-App-Browser verschlucken.
+  const [confirmRegen, setConfirmRegen] = useState(false);
   // Mặc định: điện thoại -> xem theo ngày, màn lớn -> bảng tháng.
   const [view, setView] = useState<"grid" | "day" | "week">(() =>
     typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches ? "day" : "grid",
@@ -123,26 +126,51 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
       {/* Thanh thao tác */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <button
-          onClick={() => generate()}
-          disabled={!hasEmployees || isLocked}
-          title={isLocked ? "Lịch tháng này đã khóa" : undefined}
+          onClick={() => {
+            // Gesperrter Monat: erst nachfragen, dann neu erzeugen (die
+            // Erzeugung hebt die Sperre auf und löscht die Wochen-Häkchen).
+            if (isLocked && !confirmRegen) {
+              setConfirmRegen(true);
+              return;
+            }
+            generate();
+            setConfirmRegen(false);
+          }}
+          disabled={!hasEmployees}
           className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
         >
           Tạo lịch làm việc
         </button>
+        {confirmRegen && (
+          <button
+            onClick={() => setConfirmRegen(false)}
+            className="rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            Huỷ
+          </button>
+        )}
         <span className="ml-auto text-sm text-slate-500">{monthLabel(schedule.year, schedule.month)}</span>
       </div>
+
+      {/* Rückfrage vor dem Neu-Erzeugen eines gedruckten Monats. */}
+      {isLocked && confirmRegen && (
+        <div className="mb-3 rounded bg-amber-50 border border-amber-300 text-amber-900 text-sm px-3 py-2">
+          Tháng này đã in &amp; khóa. <b>Tạo lại lịch sẽ mở khóa tháng và xóa dấu các tuần đã in</b> —
+          bản đã treo ở quán sẽ không còn khớp. Bấm lại <b>„Tạo lịch làm việc"</b> để tiếp tục.
+        </div>
+      )}
 
       {/*
         Nur ein kurzer Hinweis - Drucken und Entsperren sitzen im Tab
         "Bang cham cong". Ohne diesen Hinweis klickt man hier auf eine Zelle
         und nichts passiert, ohne zu erfahren warum.
       */}
-      {isLocked && (
+      {isLocked && !confirmRegen && (
         <div className="mb-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-sm px-3 py-2">
           Lịch tháng này đã khóa vì đã in
           {schedule.lockedAt && ` lúc ${new Date(schedule.lockedAt).toLocaleString("vi-VN")}`} — chỉ
-          xem, không sửa được. Muốn mở khóa thì sang tab <b>Bảng chấm công</b>.
+          xem, không sửa được. Mở khóa ở tab <b>Bảng chấm công</b>, hoặc bấm{" "}
+          <b>„Tạo lịch làm việc"</b> để tạo lại (sẽ mở khóa).
         </div>
       )}
 

@@ -333,7 +333,9 @@ export function useSchedule() {
 
   // ----- Generierung -----
   const generate = useCallback(() => {
-    if (isLocked) return;
+    // Ein neuer Plan hebt die Sperre des Monats auf: das alte gedruckte Blatt
+    // ist damit überholt, also verschwinden auch die „gedruckt"-Häkchen der
+    // Wochen. Die Oberfläche fragt bei einem gesperrten Monat vorher nach.
     setGenError(null);
     try {
       const shifts = generateSchedule({
@@ -345,7 +347,7 @@ export function useSchedule() {
         // Frischer Seed pro Klick => jedes Mal ein anderer gültiger Plan.
         seed: `${schedule.year}-${schedule.month}-${Date.now()}-${genNonce.current++}`,
       });
-      setSchedule((s) => ({ ...s, shifts }));
+      setSchedule((s) => ({ ...s, shifts, lockedAt: undefined, printedWeeks: [] }));
       setOriginalShifts(shifts.map((sh) => ({ ...sh })));
     } catch (err) {
       setGenError(err instanceof Error ? err.message : String(err));
@@ -356,7 +358,6 @@ export function useSchedule() {
     schedule.workHours,
     schedule.dateOverrides,
     schedule.employees,
-    isLocked,
   ]);
 
   const resetToOriginal = useCallback(() => {
