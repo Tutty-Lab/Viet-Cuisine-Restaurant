@@ -4,7 +4,7 @@ import type { Employee, EmploymentType } from "../types";
 import { splitTargetHours } from "../lib/splitTargetHours";
 import { resolveDay } from "../lib/workHours";
 import { publicHolidays } from "../lib/holidays";
-import { datesOfMonth } from "../lib/demand";
+import { datesOfMonth, WEEKDAY_SHORT_VI, type WeekdayKey } from "../lib/demand";
 import { monthlyTargetMinutes } from "../lib/contract";
 import { employmentLabelVi, employmentShortVi } from "../lib/employment";
 
@@ -14,6 +14,16 @@ const inputClass =
 /** Feste Frühschicht: 6:30–14:30. */
 const FIXED_START = 6 * 60 + 30;
 const FIXED_END = 14 * 60 + 30;
+
+const WEEKDAY_ORDER: WeekdayKey[] = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+];
 
 /** Số ngày làm (= số ca) cho một mục tiêu, hoặc thông báo lỗi. */
 function splitInfo(targetHours: number, type: EmploymentType): { ok: boolean; text: string } {
@@ -35,6 +45,8 @@ type Draft = {
   employmentType: EmploymentType;
   weekly: string;
   fixed: boolean;
+  availableWeekdays: WeekdayKey[]; // [] = mọi ngày
+  maxDays: string;
 };
 
 function draftFrom(emp?: Employee): Draft {
@@ -43,18 +55,26 @@ function draftFrom(emp?: Employee): Draft {
     employmentType: emp?.employmentType ?? "VOLLZEIT",
     weekly: emp?.weeklyHours != null ? String(emp.weeklyHours) : "39",
     fixed: !!emp?.fixedShift,
+    availableWeekdays: emp?.availableWeekdays ?? [],
+    maxDays: emp?.maxDaysPerWeek ? String(emp.maxDaysPerWeek) : "",
   };
 }
 
 /** Entwurf -> Mitarbeiter-Felder (ohne id). */
 function draftToEmployee(d: Draft): Omit<Employee, "id"> {
   const weekly = Math.max(0, Math.round(Number(d.weekly) || 0));
+  const tage = Number(d.maxDays);
   return {
     name: d.name.trim() || "Nhân viên mới",
     employmentType: d.employmentType,
     targetMinutes: 0, // wird je Monat aus weeklyHours abgeleitet (contract.ts)
     weeklyHours: weekly,
     fixedShift: d.fixed ? { startMinutes: FIXED_START, endMinutes: FIXED_END } : undefined,
+    availableWeekdays:
+      d.availableWeekdays.length === 0 || d.availableWeekdays.length === 7
+        ? undefined
+        : [...d.availableWeekdays],
+    maxDaysPerWeek: d.maxDays === "" || tage < 1 ? undefined : Math.min(7, Math.round(tage)),
   };
 }
 
@@ -308,6 +328,55 @@ function EmployeeSheet({
               </span>
             </span>
           </label>
+
+          {/* Ngày làm trong tuần + số ngày/tuần. */}
+          <div className="border-t border-slate-100 pt-3">
+            <div className="text-xs text-slate-600 mb-1.5">
+              Ngày làm trong tuần
+              {d.availableWeekdays.length === 0 && (
+                <span className="text-slate-400"> — bỏ trống = làm mọi ngày</span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {WEEKDAY_ORDER.map((key) => {
+                const alle = d.availableWeekdays.length === 0;
+                const an = alle || d.availableWeekdays.includes(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      const basis = alle ? WEEKDAY_ORDER : d.availableWeekdays;
+                      const naechste = basis.includes(key)
+                        ? basis.filter((k) => k !== key)
+                        : [...basis, key];
+                      set("availableWeekdays", naechste);
+                    }}
+                    className={`rounded px-2 py-1 text-xs border transition-colors ${
+                      an
+                        ? "bg-slate-800 text-white border-slate-800"
+                        : "bg-white text-slate-400 border-slate-200 line-through"
+                    }`}
+                  >
+                    {WEEKDAY_SHORT_VI[key]}
+                  </button>
+                );
+              })}
+            </div>
+            <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+              Số ngày làm mỗi tuần
+              <input
+                type="number"
+                min={1}
+                max={7}
+                placeholder="—"
+                className={`${inputClass} w-16`}
+                value={d.maxDays}
+                onChange={(e) => set("maxDays", e.target.value)}
+              />
+              <span className="text-slate-400">bỏ trống = không giới hạn</span>
+            </label>
+          </div>
         </div>
 
         <div className="sticky bottom-0 bg-white border-t border-slate-200 px-4 py-3">

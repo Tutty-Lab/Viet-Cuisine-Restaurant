@@ -984,6 +984,28 @@ function freeBlockOn(state: SchedulerState, employee: Employee, isoDate: string)
   return null;
 }
 
+/**
+ * Hat die Person in DIESER Woche noch einen Arbeitstag frei (maxDaysPerWeek)?
+ * `statt` blendet einen Tag aus, der im selben Zug abgegeben wird (Umzug/Tausch).
+ * Ohne gesetzte Obergrenze immer true.
+ */
+function weekDayRoomLeft(
+  state: SchedulerState,
+  employee: Employee,
+  isoDate: string,
+  statt?: string,
+): boolean {
+  const grenze = employee.maxDaysPerWeek;
+  if (!grenze) return true;
+  const woche = weekStartOf(isoDate);
+  let n = 0;
+  for (const d of state.worked.get(employee.id) ?? []) {
+    if (d === statt) continue;
+    if (weekStartOf(d) === woche) n++;
+  }
+  return n < grenze;
+}
+
 function placeOneShift(state: SchedulerState, employee: Employee): boolean {
   const remaining = state.remaining.get(employee.id)!;
   if (remaining <= 0) return false;
@@ -1006,6 +1028,11 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
   // die es keinen zulässigen Tag mehr gab. Der Plan scheiterte dann komplett.
   let usableDays = 0;
   const trial = new Set(worked);
+  // Schon verplante Tage je Woche – für die Wochentage-Obergrenze (maxDaysPerWeek).
+  const wochenTage = new Map<string, number>();
+  if (employee.maxDaysPerWeek) {
+    for (const d of worked) wochenTage.set(weekStartOf(d), (wochenTage.get(weekStartOf(d)) ?? 0) + 1);
+  }
   for (const isoDate of state.dates) {
     if (trial.has(isoDate)) continue;
     const day = state.dayOf(isoDate);
@@ -1016,6 +1043,12 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     if (!mayWorkOn(employee, isoDate)) continue;
     if (maxShiftHoursForWindow(spanFor(day, employee, isoDate)) === 0) continue;
     if (consecutiveRunLengthWith(trial, isoDate) > 6) continue;
+    // Wochentage-Obergrenze: eine schon volle Woche liefert keine weiteren Tage.
+    if (employee.maxDaysPerWeek) {
+      const wk = weekStartOf(isoDate);
+      if ((wochenTage.get(wk) ?? 0) >= employee.maxDaysPerWeek) continue;
+      wochenTage.set(wk, (wochenTage.get(wk) ?? 0) + 1);
+    }
     trial.add(isoDate); // belegt – zählt für die Kette der folgenden Tage mit
     usableDays += 1;
   }
@@ -1031,7 +1064,8 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
   for (const isoDate of state.dates) {
     const day = state.dayOf(isoDate);
     if (day.closed) continue; // Betriebsruhe -> kein Dienst
-    if (!mayWorkOn(employee, isoDate)) continue; // eingetragener Urlaub
+    if (!mayWorkOn(employee, isoDate)) continue; // eingetragener Urlaub / freier Wochentag
+    if (!weekDayRoomLeft(state, employee, isoDate)) continue; // Wochentage aufgebraucht
     // Höchstens ein Dienst je BLOCK statt je Tag – siehe dayRoomLeft.
     const tagesRest = dayRoomLeft(state, employee, isoDate);
     if (tagesRest < 3) continue;
@@ -1886,6 +1920,7 @@ function fixSameEmployeeOverlaps(state: SchedulerState): void {
                 d !== isoDate &&
                 !worked.has(d) &&
                 mayWorkOn(emp, d) &&
+                weekDayRoomLeft(state, emp, d, isoDate) &&
                 consecutiveRunLengthWith(worked, d) <= 6 &&
                 fitsOnDay(state, emp, d, dieser.paidMinutes),
             );

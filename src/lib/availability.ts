@@ -13,10 +13,21 @@
 
 import type { Employee } from "../types";
 import { URLAUB_DAYS_PER_YEAR } from "../types";
+import { parseIsoDate, weekdayKeyOf } from "./demand";
 
 /** Urlaubstage dieser Person, als Set für schnelles Nachschlagen. */
 export function vacationSet(employee: Employee): Set<string> {
   return new Set(employee.vacationDates ?? []);
+}
+
+/**
+ * Arbeitet diese Person an diesem Wochentag überhaupt? Leere/fehlende Liste =
+ * keine Einschränkung.
+ */
+export function worksOnWeekday(employee: Employee, isoDate: string): boolean {
+  const tage = employee.availableWeekdays;
+  if (!tage || tage.length === 0) return true;
+  return tage.includes(weekdayKeyOf(parseIsoDate(isoDate)));
 }
 
 /** Ist die Person an diesem Tag im Urlaub? */
@@ -26,10 +37,10 @@ export function onVacation(employee: Employee, isoDate: string): boolean {
 
 /**
  * Die eine Frage, die jeder Planungsschritt stellen muss: darf diese Person an
- * diesem Datum arbeiten?
+ * diesem Datum arbeiten? (fester freier Wochentag oder Urlaub sprechen dagegen)
  */
 export function mayWorkOn(employee: Employee, isoDate: string): boolean {
-  return !onVacation(employee, isoDate);
+  return worksOnWeekday(employee, isoDate) && !onVacation(employee, isoDate);
 }
 
 /** Wie viele Urlaubstage hat die Person in diesem Jahr eingetragen? */
