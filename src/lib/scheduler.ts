@@ -28,7 +28,7 @@ import {
 import { getShiftTemplate, type TemplateType } from "./shifts";
 import { consecutiveRunLengthWith, seededRandom } from "./consecutive";
 import { mayWorkOn } from "./availability";
-import { monthlyTargetMinutes } from "./contract";
+import { monthlyTargetMinutes, weeklyTargetMinutes } from "./contract";
 import { weekStartOf } from "./weeks";
 import {
   AZUBI_EVENING_END,
@@ -82,6 +82,12 @@ type SchedulerState = {
   byId: Map<string, Employee>;
   weekendCount: Map<string, number>; // employeeId -> Anzahl Fr/Sa-Schichten
   remaining: Map<string, number>; // employeeId -> noch zu verplanende Minuten
+  /**
+   * Wochen-Soll je Mitarbeiter: employeeId -> (weekStart -> Minuten). Nur für
+   * Kräfte mit Wochenvertrag (weeklyHours) gefüllt; sonst leer = keine
+   * Wochen-Deckelung, das Monats-Soll verteilt sich frei wie bisher.
+   */
+  weekTarget: Map<string, Map<string, number>>;
   shifts: Shift[];
   /** Für Nachfrage/Spätquote maßgeblicher Wochentag (Feiertag = Sonntag). */
   effKeyOf: (isoDate: string) => WeekdayKey;
@@ -92,6 +98,14 @@ type SchedulerState = {
   rng: () => number;
   /** true = Schichtlängen mischen; false = immer die längste (Rückfallmodus). */
   varyLengths: boolean;
+  /**
+   * true = Wochen-Soll hart deckeln (Normalfall, hält jede Woche nahe an den
+   * Wochenstunden). false = Deckel gelöst; letzter Rückfall, wenn eine Woche
+   * durch verkürzte Tage (Override/Feiertag) nicht genug Kapazität hat und das
+   * MONATS-Soll sonst offen bliebe. Ein exakt getroffenes Monats-Soll geht vor
+   * einer perfekten Wochenverteilung.
+   */
+  enforceWeekCap: boolean;
 };
 
 /**
@@ -250,12 +264,41 @@ const SONNTAG_MITTAG: PeakWindow = {
 export const EVENING_RUSH_START = 18 * 60; // 18:00
 export const EVENING_RUSH_END = 20 * 60; // 20:00
 
+// Bis hierher soll ein NICHT-Schließer am Abend höchstens laufen. Vorgabe des
+// Betriebs: gegen Ladenschluss reicht EINE Kraft ("gần đóng cửa thì 1 người
+// thôi"); die übrigen Abenddienste enden um 21:30 statt erst um 22:30. 21:30
+// passt in den Abendblock 16:30–22:30 (anders als ein Ende um 20:00, das eine
+// 5-h-Schicht vor Blockbeginn schieben würde) und lässt die letzte Stunde für
+// den einen Schließer frei.
+export const EVENING_TAPER_END = 21 * 60 + 30; // 21:30
+
 const ABEND: PeakWindow = {
   label: "Tối",
   startMinutes: EVENING_RUSH_START,
   endMinutes: EVENING_RUSH_END,
   minStaff: 2,
   maxStaff: 12, // keine echte Obergrenze – der Betrieb hat keine genannt
+};
+
+// Beim ÖFFNEN sollen mindestens zwei Kräfte da sein ("giờ mở cửa ít nhất 2 bạn")
+// – zum Aufsperren, Vorbereiten und für die erste Bedienung.
+const AUFSPERREN: PeakWindow = {
+  label: "Mở cửa",
+  startMinutes: 10 * 60 + 30, // 10:30 Ladenöffnung
+  endMinutes: 12 * 60,
+  minStaff: 2,
+  maxStaff: 12,
+};
+
+// Gegen SCHLUSS soll sich der Laden leeren: in der letzten Stunde (21:30–22:30)
+// bleibt HÖCHSTENS einer zum Zusperren ("gần đóng cửa thì 1 người thôi"). Die
+// anderen Abenddienste enden dadurch um 21:00/21:30 statt alle um 22:30.
+const SCHLUSS: PeakWindow = {
+  label: "Đóng cửa",
+  startMinutes: 21 * 60 + 30, // 21:30
+  endMinutes: 22 * 60 + 30, // 22:30 Ladenschluss
+  minStaff: 1,
+  maxStaff: 1,
 };
 
 /**
@@ -265,13 +308,13 @@ const ABEND: PeakWindow = {
  */
 export const PEAK_WINDOWS_BY_WEEKDAY: Record<WeekdayKey, readonly PeakWindow[]> = {
   monday: [],
-  tuesday: [ABEND],
-  wednesday: [ABEND],
-  thursday: [ABEND],
-  friday: [ABEND],
-  saturday: [ABEND],
+  tuesday: [AUFSPERREN, ABEND, SCHLUSS],
+  wednesday: [AUFSPERREN, ABEND, SCHLUSS],
+  thursday: [AUFSPERREN, ABEND, SCHLUSS],
+  friday: [AUFSPERREN, ABEND, SCHLUSS],
+  saturday: [AUFSPERREN, ABEND, SCHLUSS],
   // Sonntag (und Feiertag, siehe effectiveWeekdayKey): zusätzlich Mittagsspitze.
-  sunday: [SONNTAG_MITTAG, ABEND],
+  sunday: [AUFSPERREN, SONNTAG_MITTAG, ABEND, SCHLUSS],
 };
 
 /** Wie viele Leute sind zum Zeitpunkt `t` anwesend (Anwesenheit inkl. Pause)? */
@@ -601,6 +644,42 @@ function peakLengthCapHours(
     if (unvermeidbar >= peak.maxStaff) cap = Math.min(cap, dodge / 60);
   }
   return cap;
+}
+
+/**
+ * Würde ein Dienst dieser Länge an diesem Tag die Obergrenze einer Spitze
+ * REISSEN, weil er sie zwangsläufig abdeckt?
+ *
+ * Ein Dienst, der länger ist als die Ausweichlücke neben einer Spitze mit
+ * echter Obergrenze (SCHLUSS: 21:30–22:30, max 1), deckt deren Fenster ab, egal
+ * wohin man ihn legt. Zwei davon reißen die Grenze, und kein Umsortieren heilt
+ * das mehr. Der Greedy verhindert das schon über peakLengthCapHours – die
+ * REPARATURLÄUFE aber schieben ganze Dienste zwischen Tagen und kannten die
+ * Regel bisher nicht. Sie sind der Grund, warum vereinzelt doch zwei Dienste
+ * bis 22:30 durchliefen. `exclude` blendet den Dienst aus, der den Zieltag im
+ * selben Zug verlässt (Tausch).
+ */
+function wouldExceedClosingCap(
+  state: SchedulerState,
+  isoDate: string,
+  paidMinutes: number,
+  exclude?: Shift,
+): boolean {
+  const day = state.dayOf(isoDate);
+  if (day.closed) return false;
+  const presence = presenceFromPaid(paidMinutes);
+  for (const peak of state.peaksOf(isoDate)) {
+    if (peak.maxStaff >= 12) continue; // keine echte Obergrenze
+    const dodge = dodgeLimitMinutes(day.blocks, peak);
+    if (presence <= dodge) continue; // dieser Dienst kann die Spitze meiden
+    let unvermeidbar = 1; // der neu hinzukommende Dienst
+    for (const s of state.shifts) {
+      if (s.date !== isoDate || s === exclude) continue;
+      if (s.endMinutes - s.startMinutes > dodge) unvermeidbar++;
+    }
+    if (unvermeidbar > peak.maxStaff) return true;
+  }
+  return false;
 }
 
 /**
@@ -1006,6 +1085,56 @@ function weekDayRoomLeft(
   return n < grenze;
 }
 
+/** Schon in DIESER ISO-Woche verplante bezahlte Minuten dieser Person. */
+function weekMinutesOf(state: SchedulerState, employeeId: string, weekStart: string): number {
+  let min = 0;
+  for (const sh of state.shifts) {
+    if (sh.employeeId === employeeId && weekStartOf(sh.date) === weekStart) min += sh.paidMinutes;
+  }
+  return min;
+}
+
+/**
+ * Wie viele Minuten darf die Person in der Woche von `isoDate` NOCH bekommen?
+ *
+ * Unendlich ohne Wochenvertrag (dann gibt es keine Wochen-Deckelung, das
+ * Monats-Soll verteilt sich frei wie bisher). Mit Wochenvertrag: das Wochen-Soll
+ * minus dem schon in dieser Woche Verplanten – so landet jede Woche nahe an den
+ * vertraglichen Wochenstunden, statt dass eine Woche 42 h und die nächste 36 h
+ * bekommt. Eine Woche ohne eigenes Soll (winzige Rand-Woche, deren Stunden in
+ * die Nachbarwoche geschoben wurden) wird NICHT gedeckelt.
+ */
+function weekRoomLeftMin(state: SchedulerState, employee: Employee, isoDate: string): number {
+  if (!state.enforceWeekCap) return Number.POSITIVE_INFINITY;
+  const ziel = state.weekTarget.get(employee.id);
+  if (!ziel) return Number.POSITIVE_INFINITY;
+  const wk = weekStartOf(isoDate);
+  const target = ziel.get(wk);
+  if (target == null || target <= 0) return Number.POSITIVE_INFINITY;
+  return target - weekMinutesOf(state, employee.id, wk);
+}
+
+/**
+ * Darf ein Dienst dieser Person von `from` nach `to` wandern (Umzug/Tausch),
+ * ohne die Wochenverteilung zu kippen?
+ *
+ * Bei Wochenvertrag (weeklyHours) NUR innerhalb derselben ISO-Woche: die
+ * Reparaturläufe optimieren die TAGES-Nachfrage und würden sonst einen Dienst
+ * fröhlich in die Nachbarwoche schieben – genau die Wochenbalance, die beim
+ * Verteilen bewusst eingehalten wurde, ginge dabei wieder verloren. Ohne
+ * Wochenvertrag gibt es keine solche Bindung.
+ */
+function sameWeekIfWeekly(
+  state: SchedulerState,
+  employeeId: string,
+  from: string,
+  to: string,
+): boolean {
+  if (!state.enforceWeekCap) return true;
+  if (!state.weekTarget.has(employeeId)) return true;
+  return weekStartOf(from) === weekStartOf(to);
+}
+
 /**
  * Gibt das Entfernen dieses Dienstes den Tag der Person wirklich frei?
  *
@@ -1086,6 +1215,15 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
     const tagesRest = dayRoomLeft(state, employee, isoDate);
     if (tagesRest < 3) continue;
 
+    // Wochen-Soll (weeklyHours): in dieser ISO-Woche darf nur noch so viel
+    // dazukommen, wie das Wochen-Soll hergibt. Ist die Woche praktisch voll
+    // (Rest unter einer Mindestschicht), diesen Tag auslassen und in einer
+    // anderen Woche suchen – so bleibt jede Woche nahe an den Wochenstunden,
+    // statt dass eine Woche 42 h und die nächste 36 h bekommt. Ohne
+    // Wochenvertrag ist weekRest unendlich (keine Deckelung).
+    const weekRest = weekRoomLeftMin(state, employee, isoDate);
+    if (weekRest < MIN_SHIFT_MINUTES) continue;
+
     // ── Sonderregeln für den Chef ──────────────────────────────────────────
     // Er arbeitet mit, aber nach eigenem Rhythmus: fünf Tage die Woche, und
     // samstags ist er nicht im Laden. Beides sind harte Regeln wie die
@@ -1111,6 +1249,7 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
       maxShiftHoursForWindow(spanFor(day, employee, isoDate)),
       maxHoursFor(employee),
       tagesRest, // ein zweiter Dienst darf die Tagesgrenze nicht reißen
+      Math.floor(weekRest / 60), // Wochen-Soll nicht überschreiten
     );
     // Ein zweiter Dienst muss in einen noch freien Block passen.
     if (schonBelegt) {
@@ -1199,11 +1338,16 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
       ? Math.min(missingCoverHours(state, isoDate), maxHours)
       : 0;
 
+    // Für die Längenwahl zählt der kleinere der beiden Reste: bei Wochenvertrag
+    // das Wochen-Soll (weekRest), sonst das Monats-Soll (remaining). So bleibt
+    // auch der WOCHEN-Rest restlos in Schichten zerlegbar und die Woche geht
+    // exakt auf – nicht nur der Monat.
+    const restFuerLaenge = Math.min(remaining, weekRest);
     const laenge = (cap: number) =>
       cap < 3
         ? 0
         : chooseShiftHours(
-            remaining,
+            restFuerLaenge,
             cap,
             employee.employmentType,
             stillNeedsLong > 0 ? Math.max(needHours, stillNeedsLong) : needHours,
@@ -1212,20 +1356,23 @@ function placeOneShift(state: SchedulerState, employee: Employee): boolean {
           );
 
     // Erst die Länge suchen, die unter der Stoßzeit-Obergrenze bleibt.
-    const capBeisst = Number.isFinite(peakCap) && peakCap < maxHours;
     let hours = laenge(Math.min(maxHours, Math.floor(peakCap)));
-    // Der Deckel darf das eigene Tempo nicht unterlaufen: sonst verbrät eine
-    // Kraft mit hohem Soll ihre wenigen möglichen Tage an 4-h-Diensten und
-    // steht am Monatsende mit offenen Stunden da. Dann lieber diesen Tag
-    // auslassen und woanders suchen.
-    if (capBeisst && hours > 0 && hours < needHours) hours = 0;
+    // Frühere Fassung ließ hier das eigene Tempo den Deckel überstimmen: war die
+    // gedeckelte Länge kürzer als das Tagesmittel (needHours), wurde sie
+    // verworfen und stattdessen doch die lange Schicht gelegt. Das ist der
+    // Grund, warum abends ZWEI Dienste bis 22:30 durchliefen: der Abendblock
+    // (16:30–22:30) ist genau 6 h, ein 6-h-Dienst deckt zwangsläufig die letzte
+    // Stunde ab, und die Schlussspitze (SCHLUSS, max 1) verlangt dort nur einen.
+    // Jetzt hat der Deckel Vorrang: lieber eine 5-h-Schicht (endet 21:30) und
+    // die fehlende Stunde an einem anderen Tag/als geteilter Dienst, als ein
+    // zweiter Schließer. Das Monats-Soll bleibt exakt – nur eben über mehr Tage.
     let peakPenalty = 0;
     if (hours === 0) {
-      // Nichts passt darunter. Der Deckel ist hier bewusst KEIN K.o.: sonst
-      // bleibt am Monatsende ein Rest Sollstunden liegen und es entsteht gar
-      // kein Plan. Ein Tag mit einer Person zu viel ist besser als kein Plan –
-      // er wird in der Auswertung als Abweichung ausgewiesen. Die Strafe sorgt
-      // dafür, dass das die allerletzte Wahl bleibt.
+      // Unter dem Deckel geht gar keine gültige Länge auf. Der Deckel ist dann
+      // bewusst KEIN K.o.: sonst bleibt am Monatsende ein Rest Sollstunden
+      // liegen und es entsteht gar kein Plan. Ein Tag mit einer Person zu viel
+      // ist besser als kein Plan – er wird in der Auswertung als Abweichung
+      // ausgewiesen. Die Strafe sorgt dafür, dass das die allerletzte Wahl bleibt.
       hours = laenge(maxHours);
       if (Number.isFinite(peakCap)) peakPenalty = 60;
     }
@@ -1424,6 +1571,10 @@ function repairDemand(state: SchedulerState, employeesById: Map<string, Employee
         // Stunden bis zur Tagesgrenze.
         if (!fitsOnDay(state, employee, to, shift.paidMinutes)) continue;
         if (!ownerDayOk(state, employee.id, to, gibtFrom)) continue;
+        // Bei Wochenvertrag nicht über die Wochengrenze schieben (Wochenbalance).
+        if (!sameWeekIfWeekly(state, employee.id, from, to)) continue;
+        // Keinen zweiten Schließer auf den Zieltag schieben (SCHLUSS, max 1).
+        if (wouldExceedClosingCap(state, to, shift.paidMinutes)) continue;
         const day = state.dayOf(to);
         if (day.closed || spanFor(day, employee, to) < presence) continue; // zu / passt nicht
         // 6-Tage-Regel prüfen, als ob dieser Dienst schon weg wäre.
@@ -1506,6 +1657,11 @@ function canSwap(state: SchedulerState, a: Shift, b: Shift, allowSameEmployee = 
 
   const sameEmployee = a.employeeId === b.employeeId;
   if (sameEmployee && !allowSameEmployee) return false; // sonst wäre es ein Umzug
+
+  // Bei Wochenvertrag keinen Dienst über die Wochengrenze tauschen – das würde
+  // die bewusst eingehaltene Wochenverteilung wieder auflösen.
+  if (!sameWeekIfWeekly(state, a.employeeId, a.date, b.date)) return false;
+  if (!sameWeekIfWeekly(state, b.employeeId, b.date, a.date)) return false;
 
   if (!sameEmployee) {
     // Höchstens ein Dienst pro Mitarbeiter und Tag.
@@ -1649,6 +1805,16 @@ function trySwaps(state: SchedulerState, employeesById: Map<string, Employee>): 
       // Harte Regel: höchstens ein Dienst pro Mitarbeiter und Tag.
       if (!fitsOnDay(state, empA, b.date, a.paidMinutes)) continue;
       if (!fitsOnDay(state, empB, a.date, b.paidMinutes)) continue;
+
+      // Bei Wochenvertrag nicht über die Wochengrenze tauschen (Wochenbalance).
+      if (!sameWeekIfWeekly(state, a.employeeId, a.date, b.date)) continue;
+      if (!sameWeekIfWeekly(state, b.employeeId, b.date, a.date)) continue;
+
+      // Kein Tausch, der auf einem der beiden Tage einen zweiten Schließer
+      // schafft (SCHLUSS, max 1). a landet auf b.date, b auf a.date – der jeweils
+      // wegziehende Dienst wird dabei ausgeblendet.
+      if (wouldExceedClosingCap(state, b.date, a.paidMinutes, b)) continue;
+      if (wouldExceedClosingCap(state, a.date, b.paidMinutes, a)) continue;
 
       // Fester freier Wochentag / Wochentage-Obergrenze am jeweiligen Zieltag.
       // Der abgegebene Tag zählt nur, wenn der Tausch ihn wirklich frei macht.
@@ -1964,6 +2130,7 @@ function fixSameEmployeeOverlaps(state: SchedulerState): void {
                 !worked.has(d) &&
                 mayWorkOn(emp, d) &&
                 weekDayRoomLeft(state, emp, d, isoDate) &&
+                sameWeekIfWeekly(state, emp.id, isoDate, d) &&
                 consecutiveRunLengthWith(worked, d) <= 6 &&
                 fitsOnDay(state, emp, d, dieser.paidMinutes),
             );
@@ -2040,15 +2207,17 @@ function concentrateEveningShifts(state: SchedulerState): void {
       onDay.some((s) => s.startMinutes === first.startMinutes) &&
       onDay.some((s) => s.endMinutes === block.endMinutes);
 
-    // Zieht `s` so, dass er um 21:00 endet – falls das erlaubt und sinnvoll ist.
-    const aufSpitze = (s: Shift) => {
-      const start = EVENING_RUSH_END - (s.endMinutes - s.startMinutes);
+    // Zieht `s` so vor, dass er spätestens um `tail` endet – falls das erlaubt
+    // und sinnvoll ist. Dauer und Pause bleiben, nur die Lage wandert.
+    const taperTo = (s: Shift, tail: number) => {
+      if (s.endMinutes <= tail) return; // endet ohnehin schon früh genug
+      const start = tail - (s.endMinutes - s.startMinutes);
       if (start < block.startMinutes || start >= s.startMinutes) return; // passt nicht / nicht früher
-      // Der Azubi darf unter der Woche erst ab 18:00 – ein Zug auf 17:00 wäre
-      // zwar näher an der Spitze, aber für ihn schlicht verboten.
+      // Der Azubi darf unter der Woche erst ab 18:00 – ein früherer Start wäre
+      // für ihn verboten.
       const wer = state.byId.get(s.employeeId);
       const erlaubt = wer ? blocksFor(day, wer, isoDate) : day.blocks;
-      if (!erlaubt.some((b) => start >= b.startMinutes && s.endMinutes <= b.endMinutes)) return;
+      if (!erlaubt.some((b) => start >= b.startMinutes && start + (s.endMinutes - s.startMinutes) <= b.endMinutes)) return;
       if (!freiFuer(onDay, s, start)) return;
       const vorher = s.startMinutes;
       const gut = peakDeficit(onDay, day.window, peaks);
@@ -2056,22 +2225,100 @@ function concentrateEveningShifts(state: SchedulerState): void {
       if (!opensAndCloses() || peakDeficit(onDay, day.window, peaks) > gut) moveShiftTo(s, vorher);
     };
 
-    // 1. Höchstens ein Schließer. Längster zuerst – den behalten wir; alle
-    //    weiteren Dienste am Schließen wandern auf die Spitze.
-    const closers = onDay
-      .filter((s) => s.endMinutes === block.endMinutes && s.startMinutes >= block.startMinutes)
-      .sort((a, b) => b.endMinutes - b.startMinutes - (a.endMinutes - a.startMinutes));
-    for (let i = 1; i < closers.length; i++) aufSpitze(closers[i]);
+    // Gegen Schluss reicht EINE Kraft (SCHLUSS, max 1). Den längsten Dienst am
+    // Ladenschluss behalten wir als Schließer bis 22:30; ALLE anderen
+    // Abenddienste, die nach 21:30 enden, werden auf 21:30 vorgezogen. So bleibt
+    // die letzte Stunde dem Schließer allein, und der Betrieb hat statt lauter
+    // 22:30-Enden viele Dienste, die schon um 21:30 fertig sind.
+    const eveningShifts = onDay.filter(
+      (s) => s.startMinutes >= block.startMinutes && s.endMinutes <= block.endMinutes,
+    );
+    if (eveningShifts.length === 0) continue;
 
-    // 2. Kurze Abenddienste (3–4 h), die weder aufsperren noch schon um 21:00
-    //    enden, ebenfalls auf die Spitze ziehen (z.B. ein 17:00–20:00 am
-    //    Wochenende). Der Abend-Aufsperrer Di–Fr (Start am Blockanfang) bleibt.
-    for (const s of onDay) {
-      if (s.paidMinutes > 4 * 60) continue;
-      if (s.startMinutes < block.startMinutes || s.endMinutes > block.endMinutes) continue;
-      if (s.startMinutes === block.startMinutes) continue; // Aufsperrer
-      if (s.endMinutes === block.endMinutes || s.endMinutes === EVENING_RUSH_END) continue;
-      aufSpitze(s);
+    const dauer = (s: Shift) => s.endMinutes - s.startMinutes;
+
+    // Genau EIN Schließer soll bis 22:30 bleiben. Steht schon jemand am
+    // Schließen, ist es der längste dieser Dienste. Steht NIEMAND dort – die
+    // vorherigen Läufe (balanceShiftTypes, tightenSplitShifts) können den
+    // Schließer versehentlich nach vorn gezogen haben –, wird der längste
+    // Abenddienst, der ans Schließen passt, dorthin gesetzt. Sonst schließt
+    // niemand den Laden ab.
+    let keepCloser = eveningShifts
+      .filter((s) => s.endMinutes === block.endMinutes)
+      .sort((a, b) => dauer(b) - dauer(a))[0];
+    if (!keepCloser) {
+      const kandidat = [...eveningShifts]
+        .sort((a, b) => dauer(b) - dauer(a))
+        .find(
+          (s) =>
+            block.endMinutes - dauer(s) >= block.startMinutes &&
+            freiFuer(onDay, s, block.endMinutes - dauer(s)),
+        );
+      if (kandidat) {
+        moveShiftTo(kandidat, block.endMinutes - dauer(kandidat));
+        keepCloser = kandidat;
+      }
+    }
+
+    for (const s of eveningShifts) {
+      if (s === keepCloser) continue;
+      if (s.startMinutes === block.startMinutes) continue; // Abend-Aufsperrer bleibt
+      taperTo(s, EVENING_TAPER_END);
+    }
+  }
+}
+
+/**
+ * Beim ÖFFNEN mindestens die geforderte Personenzahl (AUFSPERREN, min 2).
+ *
+ * Der Greedy legt genügend Vormittagsdienste an, positioniert den zweiten aber
+ * oft auf 11:30 (ein kurzer Mittagsdienst hängt nicht zwingend am Blockanfang).
+ * Dann steht 10:30–11:30 nur EINE Kraft im Laden, obwohl der Betrieb zwei zum
+ * Aufsperren will. Hier wird ein weiterer Dienst des ERSTEN Blocks auf den
+ * Blockanfang gezogen, bis die Öffnungsspitze besetzt ist. Dauer und Pause
+ * bleiben unangetastet – das Monats-Soll also exakt.
+ *
+ * Verschoben wird nur innerhalb des ersten Blocks; die Abend- und Schlussspitze
+ * bleiben dadurch unberührt. Ein Zug wird verworfen, wenn er eine andere Spitze
+ * über ihre Obergrenze bringt (peakDeficit darf nicht wachsen).
+ */
+function ensureOpeningStaff(state: SchedulerState): void {
+  for (const isoDate of state.dates) {
+    const day = state.dayOf(isoDate);
+    if (day.closed || day.blocks.length === 0) continue;
+    const peaks = state.peaksOf(isoDate);
+    const first = day.blocks[0];
+    // Die Öffnungsspitze beginnt am Ladenanfang und fordert mehr als eine Kraft.
+    const opening = peaks.find((p) => p.startMinutes <= first.startMinutes && p.minStaff >= 2);
+    if (!opening) continue;
+
+    const from = Math.max(opening.startMinutes, first.startMinutes);
+    const to = Math.min(opening.endMinutes, first.endMinutes);
+    if (to <= from) continue;
+
+    const onDay = state.shifts.filter((s) => s.date === isoDate);
+    let guard = 0;
+    while (minCoverageOver(onDay, from, to) < opening.minStaff && guard++ < onDay.length) {
+      // Ein Dienst des ersten Blocks, der noch nicht am Blockanfang beginnt.
+      // Kürzeste zuerst: die reißt am Blockende die kleinste neue Lücke.
+      const cand = onDay
+        .filter(
+          (s) =>
+            s.startMinutes > first.startMinutes &&
+            s.endMinutes <= first.endMinutes &&
+            first.startMinutes + (s.endMinutes - s.startMinutes) <= first.endMinutes,
+        )
+        .sort((a, b) => a.paidMinutes - b.paidMinutes)[0];
+      if (!cand) break;
+      if (!freiFuer(onDay, cand, first.startMinutes)) break;
+      const before = cand.startMinutes;
+      const gut = peakDeficit(onDay, day.window, peaks);
+      moveShiftTo(cand, first.startMinutes);
+      // Nur behalten, wenn keine andere Spitze dadurch schlechter wird.
+      if (peakDeficit(onDay, day.window, peaks) > gut) {
+        moveShiftTo(cand, before);
+        break;
+      }
     }
   }
 }
@@ -2639,6 +2886,28 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   const totalTargetMin = employees.reduce((sum, e) => sum + e.targetMinutes, 0);
   const totalWeight = dates.reduce((sum, d) => sum + weightOf(d), 0);
 
+  // Offene Tage je ISO-Woche – Grundlage für das Wochen-Soll (weeklyHours).
+  const openDaysByWeek: { weekStart: string; openDays: number }[] = [];
+  {
+    const byWeek = new Map<string, number>();
+    for (const d of dates) {
+      if (dayOf(d).closed) continue;
+      const wk = weekStartOf(d);
+      byWeek.set(wk, (byWeek.get(wk) ?? 0) + 1);
+    }
+    for (const [weekStart, cnt] of [...byWeek.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      openDaysByWeek.push({ weekStart, openDays: cnt });
+    }
+  }
+  // Wochen-Soll je Mitarbeiter mit Wochenvertrag. Ohne weeklyHours bleibt der
+  // Eintrag leer und die Verteilung läuft wie bisher rein übers Monats-Soll.
+  const weekTarget = new Map<string, Map<string, number>>();
+  for (const e of input.employees) {
+    if (e.weeklyHours != null && e.weeklyHours > 0) {
+      weekTarget.set(e.id, weeklyTargetMinutes(monthlyTargetMinutes(e, openDays), openDaysByWeek));
+    }
+  }
+
   // Erst der Boden für die Stoßzeit, dann die Gewichtung auf den Rest.
   // Reicht die Gesamtsumme nicht einmal für den Boden, wird rein nach Gewicht
   // verteilt – dann ist der Monat für die Stoßzeiten-Regel schlicht zu dünn
@@ -2691,7 +2960,7 @@ export function generateSchedule(input: GenerateInput): Shift[] {
    * (4..8 h statt immer die längste); das ist schöner, kann aber bei knappem
    * Soll die Tage aufbrauchen. Deshalb gibt es den zweiten, strengen Versuch.
    */
-  function attempt(varyLengths: boolean, salt = ""): SchedulerState {
+  function attempt(varyLengths: boolean, salt = "", enforceWeekCap = true): SchedulerState {
     shiftIdCounter = 0;
     const st: SchedulerState = {
       dates,
@@ -2702,12 +2971,14 @@ export function generateSchedule(input: GenerateInput): Shift[] {
       byId: new Map(employees.map((e) => [e.id, e] as const)),
       weekendCount: new Map(employees.map((e) => [e.id, 0])),
       remaining: new Map(employees.map((e) => [e.id, e.targetMinutes])),
+      weekTarget,
       shifts: [],
       effKeyOf,
       dayOf,
       peaksOf: (isoDate: string) => PEAK_WINDOWS_BY_WEEKDAY[effKeyOf(isoDate)],
       rng: seededRandom(seed + salt),
       varyLengths,
+      enforceWeekCap,
     };
 
     // Rundenweise, rotierend platzieren: pro Runde eine Schicht je Mitarbeiter,
@@ -2736,6 +3007,12 @@ export function generateSchedule(input: GenerateInput): Shift[] {
     state = attempt(true, `#${k}`);
   }
   if (incomplete(state)) state = attempt(false);
+  // Letzter Rückfall: den Wochen-Deckel lösen. Eine Woche kann durch verkürzte
+  // Tage (Override/Feiertag) zu wenig Kapazität für ihr rechnerisches Wochen-Soll
+  // haben; dann bliebe das MONATS-Soll offen. Ein exakt getroffenes Monats-Soll
+  // geht vor – die Wochenverteilung ist nur so streng, wie sie erfüllbar ist.
+  if (incomplete(state)) state = attempt(true, "no-weekcap", false);
+  if (incomplete(state)) state = attempt(false, "no-weekcap", false);
 
   const unmet = normale.filter((e) => state.remaining.get(e.id)! > 0);
   if (unmet.length > 0) {
@@ -2773,6 +3050,10 @@ export function generateSchedule(input: GenerateInput): Shift[] {
   // der Lauf davor konnte diese erst danach entstandene Überschneidung nicht
   // sehen.
   fixSameEmployeeOverlaps(state);
+  // Zum Öffnen mindestens zwei Kräfte (AUFSPERREN): einen zweiten Vormittags-
+  // dienst des ersten Blocks auf den Ladenanfang ziehen, falls dort nur einer
+  // steht (siehe ensureOpeningStaff).
+  ensureOpeningStaff(state);
 
   // Ganz zum Schluss die Feste-Schicht-Kräfte (6:30–14:30) belegen – unberührt
   // von den Reparaturläufen, damit ihr Fenster fest bleibt.

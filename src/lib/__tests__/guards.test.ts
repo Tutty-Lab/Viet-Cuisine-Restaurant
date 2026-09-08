@@ -80,9 +80,13 @@ describe("Zu wenige Leute in der Stoßzeit", () => {
   });
 
   it("nennt die tatsächliche Personenzahl und die geforderte", () => {
+    // Gezielt die ABENDspitze prüfen (Label "Tối"): der eine Dienst deckt zwar
+    // den Abend mit ab, steht dort aber allein. Seit es zusätzlich eine
+    // Öffnungsspitze (AUFSPERREN) gibt, ist an diesem Tag auch die unbesetzt –
+    // deshalb hier nicht mehr blind "die erste !ok-Spitze" greifen.
     const abend = analysis.peakViolations
       .find((d) => d.date === "2026-08-01")!
-      .peaks.find((p) => !p.ok)!;
+      .peaks.find((p) => p.label === "Tối" && !p.ok)!;
     expect(abend.minStaff).toBe(1); // so viele stehen wirklich da
     expect(abend.required).toBe(2); // so viele müssen es mindestens sein
   });

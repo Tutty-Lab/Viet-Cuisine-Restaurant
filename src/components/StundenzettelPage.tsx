@@ -95,42 +95,53 @@ export function StundenzettelPage({
           </tr>
         </thead>
         <tbody>
-          {rows.map((d) => {
-            const dienste = byDate.get(d) ?? [];
-            const s = dienste[0];
-            // Bei zwei Diensten stehen beide Zeitspannen untereinander; Pause
-            // und Stunden werden addiert, damit die Summe unten stimmt.
-            const zeiten = (feld: "startMinutes" | "endMinutes") =>
-              dienste.map((x) => minutesToTime(x[feld])).join(" / ");
-            const pauseGesamt = dienste.reduce((a, x) => a + x.pauseMinutes, 0);
-            const bezahltGesamt = dienste.reduce((a, x) => a + x.paidMinutes, 0);
+          {rows.flatMap((d) => {
+            // Geteilte Dienste (mittags + abends) sind ZWEI Arbeitsperioden und
+            // gehören auf dem Stundenzettel in ZWEI Zeilen – NICHT als "11:30 /
+            // 16:30" in eine Zelle gequetscht. Jede Zeile hat einen Beginn und
+            // ein Ende, wie es die Behörde erwartet. Das Datum wird je Zeile
+            // wiederholt, damit jede Zeile für sich lesbar ist.
+            const dienste = [...(byDate.get(d) ?? [])].sort(
+              (a, b) => a.startMinutes - b.startMinutes,
+            );
             const wd = WEEKDAY_LABELS_DE[weekdayKeyOf(parseIsoDate(d))];
             const holiday = holidayNames.get(d);
             const closed = closedByDate.get(d);
-            const isWeekend = wd === "Samstag" || wd === "Sonntag";
-            let bemerkung: string;
-            if (s) {
-              bemerkung = holiday ? `Feiertag: ${holiday}` : "";
-            } else if (closed) {
-              bemerkung = closed.note || "Betriebsruhe";
-            } else if (holiday) {
-              bemerkung = `Frei (Feiertag: ${holiday})`;
-            } else {
-              bemerkung = "Frei";
+            const rowCls = wd === "Samstag" || wd === "Sonntag" || holiday || closed ? "bg-slate-50" : "";
+            const datum = format(parseIsoDate(d), "dd.MM.yyyy");
+
+            if (dienste.length === 0) {
+              const bemerkung = closed
+                ? closed.note || "Betriebsruhe"
+                : holiday
+                  ? `Frei (Feiertag: ${holiday})`
+                  : "Frei";
+              return [
+                <tr key={d} className={rowCls}>
+                  <Td>{datum}</Td>
+                  <Td>{wd}</Td>
+                  <Td className="text-center" />
+                  <Td className="text-center" />
+                  <Td className="text-center" />
+                  <Td className="text-center">0,00</Td>
+                  <Td className="text-left text-slate-500">{bemerkung}</Td>
+                </tr>,
+              ];
             }
-            return (
-              <tr key={d} className={isWeekend || holiday || closed ? "bg-slate-50" : ""}>
-                <Td>{format(parseIsoDate(d), "dd.MM.yyyy")}</Td>
+
+            return dienste.map((x, i) => (
+              <tr key={`${d}#${i}`} className={rowCls}>
+                <Td>{datum}</Td>
                 <Td>{wd}</Td>
-                <Td className="text-center">{s ? zeiten("startMinutes") : ""}</Td>
-                <Td className="text-center">{s ? zeiten("endMinutes") : ""}</Td>
-                <Td className="text-center">{s ? `${pauseGesamt} Min` : ""}</Td>
-                <Td className="text-center">
-                  {s ? minutesToDecimalHours(bezahltGesamt) : "0,00"}
+                <Td className="text-center">{minutesToTime(x.startMinutes)}</Td>
+                <Td className="text-center">{minutesToTime(x.endMinutes)}</Td>
+                <Td className="text-center">{x.pauseMinutes} Min</Td>
+                <Td className="text-center">{minutesToDecimalHours(x.paidMinutes)}</Td>
+                <Td className="text-left text-slate-500">
+                  {i === 0 && holiday ? `Feiertag: ${holiday}` : ""}
                 </Td>
-                <Td className="text-left text-slate-500">{bemerkung}</Td>
               </tr>
-            );
+            ));
           })}
         </tbody>
         <tfoot>
