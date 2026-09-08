@@ -42,6 +42,11 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const [pdfBusy, setPdfBusy] = useState(false);
   const pdfStage = useRef<HTMLDivElement>(null);
 
+  // Zeitraum für den Stundenzettel-Ausdruck: gesetzt => Wochen-Zettel (nur diese
+  // Tage), leer => ganzer Monat.
+  const [szDates, setSzDates] = useState<string[] | undefined>(undefined);
+  const [szLabel, setSzLabel] = useState<string | undefined>(undefined);
+
   /** Zweiter Klick für das Entsperren – ohne native Dialoge, siehe unten. */
   const [confirmUnlock, setConfirmUnlock] = useState(false);
 
@@ -60,10 +65,12 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
 
   // Vùng in phải được render TRƯỚC khi gọi print, và print phải nằm trong cùng
   // thao tác chạm (mobile chặn print ngoài gesture). flushSync render đồng bộ.
-  function doPrint(list: Employee[]) {
+  function doPrint(list: Employee[], sz?: { dates?: string[]; label?: string }) {
     if (list.length === 0) return;
     flushSync(() => {
       setScheduleRange(null);
+      setSzDates(sz?.dates);
+      setSzLabel(sz?.label);
       setPrintList(list);
     });
     window.print();
@@ -88,11 +95,17 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
    * PDF: các trang phải được render thật (không display:none) thì html2canvas
    * mới chụp được – vì vậy dùng "sân khấu" nằm ngoài màn hình.
    */
-  async function doPdf(list: Employee[], filename: string) {
+  async function doPdf(
+    list: Employee[],
+    filename: string,
+    sz?: { dates?: string[]; label?: string },
+  ) {
     if (list.length === 0 || pdfBusy) return;
     setPdfBusy(true);
     flushSync(() => {
       setPdfSchedule(null);
+      setSzDates(sz?.dates);
+      setSzLabel(sz?.label);
       setPdfList(list);
     });
     try {
@@ -153,9 +166,21 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     };
   }
 
+  // Wochen-Stundenzettel: nur die Tage dieser Woche, mit Wochentitel oben rechts.
+  function szWeekFor(weekStart: string): { dates: string[]; label: string } | null {
+    const w = weeks.find((x) => x.weekStart === weekStart);
+    if (!w) return null;
+    return { dates: w.dates, label: `Woche ${w.label}${schedule.year}` };
+  }
+
   function onPrint() {
     if (what === "stundenzettel") {
       doPrint(chosenEmployees);
+      return;
+    }
+    if (what.startsWith("sz-")) {
+      const sz = szWeekFor(what.slice(3));
+      if (sz) doPrint(chosenEmployees, sz);
       return;
     }
     const range = scheduleRangeFor(what);
@@ -164,8 +189,15 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
 
   function onPdf() {
     if (what === "stundenzettel") {
-      const filename = `Stundenzettel_${whoTag}_${monthTag}.pdf`;
-      void doPdf(chosenEmployees, filename);
+      void doPdf(chosenEmployees, `Stundenzettel_${whoTag}_${monthTag}.pdf`);
+      return;
+    }
+    if (what.startsWith("sz-")) {
+      const weekStart = what.slice(3);
+      const sz = szWeekFor(weekStart);
+      if (sz) {
+        void doPdf(chosenEmployees, `Stundenzettel_${whoTag}_${monthTag}_tuan_${weekStart}.pdf`, sz);
+      }
       return;
     }
     const range = scheduleRangeFor(what);
@@ -224,6 +256,11 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
                 onChange={(e) => setWhat(e.target.value)}
               >
                 <option value="stundenzettel">Bảng chấm công (Stundenzettel) — cả tháng</option>
+                {weeks.map((w) => (
+                  <option key={`sz-${w.weekStart}`} value={`sz-${w.weekStart}`}>
+                    Bảng chấm công (Stundenzettel) — tuần {w.label}
+                  </option>
+                ))}
                 <option value="month">Lịch làm việc — cả tháng</option>
                 {weeks.map((w) => {
                   const printed = (schedule.printedWeeks ?? []).includes(w.weekStart);
@@ -264,10 +301,11 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
           )}
 
           <p className="mt-2 text-xs text-slate-500">
-            <b>Bảng chấm công (Stundenzettel)</b> theo mẫu tiếng Đức để nộp — một tờ mỗi người, cả
-            tháng. <b>Lịch làm việc</b> là lịch treo ở quán (cả tháng hoặc từng tuần, cho cả quán
-            hoặc một người). <b>In một tuần sẽ khóa lịch tháng</b> để bản treo luôn khớp với hệ
-            thống. Xuất PDF tải thẳng file về máy; trên điện thoại sẽ mở bảng Chia sẻ.
+            <b>Bảng chấm công (Stundenzettel)</b> theo mẫu tiếng Đức để nộp — một tờ mỗi người, chọn
+            cả tháng hoặc từng tuần. <b>Lịch làm việc</b> là lịch treo ở quán (cả tháng hoặc từng
+            tuần, cho cả quán hoặc một người). <b>In lịch một tuần sẽ khóa lịch tháng</b> để bản
+            treo luôn khớp với hệ thống. Xuất PDF tải thẳng file về máy; trên điện thoại mở bảng
+            Chia sẻ.
           </p>
 
           {isLocked && (
@@ -351,7 +389,13 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
           />
         ) : (
           (printList ?? []).map((emp) => (
-            <StundenzettelPage key={emp.id} schedule={schedule} employee={emp} />
+            <StundenzettelPage
+              key={emp.id}
+              schedule={schedule}
+              employee={emp}
+              dates={szDates}
+              periodLabel={szLabel}
+            />
           ))
         )}
       </div>
@@ -368,7 +412,13 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
           />
         ) : (
           (pdfList ?? []).map((emp) => (
-            <StundenzettelPage key={emp.id} schedule={schedule} employee={emp} />
+            <StundenzettelPage
+              key={emp.id}
+              schedule={schedule}
+              employee={emp}
+              dates={szDates}
+              periodLabel={szLabel}
+            />
           ))
         )}
       </div>

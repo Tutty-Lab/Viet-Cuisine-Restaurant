@@ -23,11 +23,17 @@ function monthLabelDe(year: number, month: number): string {
 export function StundenzettelPage({
   schedule,
   employee,
+  dates,
+  periodLabel,
 }: {
   schedule: Schedule;
   employee: Employee;
+  /** Nur diese Tage zeigen (Wochen-Stundenzettel); fehlend => ganzer Monat. */
+  dates?: string[];
+  /** Zeitraum-Text oben rechts; fehlend => Monat/Jahr. */
+  periodLabel?: string;
 }) {
-  const dates = datesOfMonth(schedule.year, schedule.month);
+  const rows = dates ?? datesOfMonth(schedule.year, schedule.month);
   // MEHRERE Dienste je Tag: wer mittags und abends arbeitet, hat zwei. Vorher
   // stand hier eine Map auf EINEN Dienst – der zweite fiel lautlos aus dem
   // Stundenzettel, und damit aus der Lohnabrechnung.
@@ -40,8 +46,9 @@ export function StundenzettelPage({
   }
   for (const liste of byDate.values()) liste.sort((a, b) => a.startMinutes - b.startMinutes);
 
-  const totalMinutes = [...byDate.values()]
-    .flat()
+  // Summe nur über die gezeigten Tage – beim Wochen-Zettel zählt nur die Woche.
+  const totalMinutes = rows
+    .flatMap((d) => byDate.get(d) ?? [])
     .reduce((a, s) => a + s.paidMinutes, 0);
   const holidayNames = publicHolidayNames(schedule.year);
   const closedByDate = new Map(
@@ -57,7 +64,7 @@ export function StundenzettelPage({
           {schedule.address && <p className="text-slate-500 text-[11px]">{schedule.address}</p>}
         </div>
         <div className="text-right text-slate-600">
-          <div>{monthLabelDe(schedule.year, schedule.month)}</div>
+          <div>{periodLabel ?? monthLabelDe(schedule.year, schedule.month)}</div>
         </div>
       </div>
 
@@ -88,7 +95,7 @@ export function StundenzettelPage({
           </tr>
         </thead>
         <tbody>
-          {dates.map((d) => {
+          {rows.map((d) => {
             const dienste = byDate.get(d) ?? [];
             const s = dienste[0];
             // Bei zwei Diensten stehen beide Zeitspannen untereinander; Pause
