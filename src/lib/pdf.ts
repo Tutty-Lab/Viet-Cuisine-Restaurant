@@ -5,7 +5,12 @@
 // ============================================================================
 
 import { jsPDF } from "jspdf";
-import html2canvas from "html2canvas";
+// html2canvas-pro (Fork) statt html2canvas: der alte Parser wirft bei modernen
+// Farbfunktionen wie oklch()/color-mix() einen Fehler ("unsupported color
+// function"). Solche Farben stammen oft von Browser-Erweiterungen (z. B. Dark
+// Reader), die ihre Styles in die Seite einschleusen; html2canvas klont sie
+// beim Aufnehmen mit und scheitert. Der Fork versteht diese Funktionen.
+import html2canvas from "html2canvas-pro";
 
 const A4_WIDTH_MM = 210;
 const A4_HEIGHT_MM = 297;
