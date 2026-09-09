@@ -97,13 +97,15 @@ describe("Scheduler – August 2026 Beispieldaten", () => {
     );
   });
 
-  it("verteilt 39 Wochenstunden gleichmaessig auf sechs Arbeitstage", () => {
-    const byDate = new Map<string, number>();
-    for (const s of shifts.filter((shift) => shift.employeeId === "ma-1")) {
-      byDate.set(s.date, (byDate.get(s.date) ?? 0) + s.paidMinutes);
-    }
-    expect(byDate.get("2026-08-01")).toBe(390);
-    expect(byDate.get("2026-08-04")).toBe(390);
+  it("keeps individual contracts while allocating aggregate hours by demand", () => {
+    const week = shifts.filter((shift) => shift.employeeId === "ma-1" && weekStartOf(shift.date) === "2026-08-03");
+    expect(week.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(39 * 60);
+    const all = shifts.filter((shift) => weekStartOf(shift.date) === "2026-08-03");
+    const busy = all.filter((shift) => [0, 5, 6].includes(new Date(`${shift.date}T12:00:00`).getDay()))
+      .reduce((sum, shift) => sum + shift.paidMinutes, 0);
+    const normal = all.reduce((sum, shift) => sum + shift.paidMinutes, 0) - busy;
+    expect(busy / normal).toBeGreaterThanOrEqual(1.47);
+    expect(busy / normal).toBeLessThanOrEqual(1.53);
   });
 });
 

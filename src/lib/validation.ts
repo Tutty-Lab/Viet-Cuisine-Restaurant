@@ -12,6 +12,8 @@ import { monthlyTargetMinutes } from "./contract";
 import { calculatePause } from "./time";
 import { maxConsecutiveRun } from "./consecutive";
 import { weekStartOf } from "./weeks";
+import { validPause } from "./staffing";
+import { mayWorkOn } from "./availability";
 
 export type ValidationError = {
   employeeId?: string;
@@ -105,6 +107,16 @@ export function validateSchedule(
     const presence = shift.endMinutes - shift.startMinutes;
     const expectedPaid = presence - shift.pauseMinutes;
     const expectedPause = calculatePause(shift.paidMinutes);
+    const employee = employeeById.get(shift.employeeId);
+    if (employee && !mayWorkOn(employee, shift.date)) errors.push({ employeeId: employee.id, date: shift.date,
+      message: `${employee.name}: đã xếp vào ngày không thể làm ${shift.date}.`,
+    });
+    if (shift.pauseStartMinutes != null && !validPause(shift)) errors.push({ employeeId: shift.employeeId, date: shift.date,
+      message: `Giờ nghỉ không hợp lệ ngày ${shift.date}.`,
+    });
+    if (employee?.weeklyHours != null && shift.pauseMinutes > 0 && shift.pauseStartMinutes == null) errors.push({ employeeId: shift.employeeId, date: shift.date,
+      message: `Chưa xếp giờ bắt đầu nghỉ ngày ${shift.date}; cần giờ nghỉ cụ thể để kiểm tra đủ người.`,
+    });
 
     if (shift.endMinutes <= shift.startMinutes) {
       errors.push({
@@ -168,6 +180,13 @@ export function validateSchedule(
     }
 
     const assignedMinutes = empShifts.reduce((sum, s) => sum + s.paidMinutes, 0);
+    for (const date of seenDates) {
+      const paid = empShifts.filter((shift) => shift.date === date).reduce((sum, shift) => sum + shift.paidMinutes, 0);
+      const limit = emp.isOwner ? MAX_PAID_MINUTES_OWNER : MAX_PAID_MINUTES;
+      if (paid > limit) errors.push({ employeeId: emp.id, date,
+        message: `${emp.name}: tổng giờ công ngày ${date} vượt ${limit / 60} giờ.`,
+      });
+    }
     const maxRun = maxConsecutiveRun(new Set(empShifts.map((s) => s.date)));
     const soll = sollOf(emp);
 

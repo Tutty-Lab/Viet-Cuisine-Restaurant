@@ -6,6 +6,7 @@
 import type { Shift } from "../types";
 import { format } from "date-fns";
 import { MONTH_NAMES_VI } from "./dateFormat";
+import { validPause } from "./staffing";
 
 let manualCounter = 0;
 export function nextManualShiftId(): string {
@@ -28,6 +29,7 @@ export function createManualShift(
   startMinutes: number,
   endMinutes: number,
   pauseMinutes: number,
+  pauseStartMinutes?: number,
 ): Shift {
   return {
     id: nextManualShiftId(),
@@ -36,6 +38,7 @@ export function createManualShift(
     startMinutes,
     endMinutes,
     pauseMinutes,
+    pauseStartMinutes,
     paidMinutes: paidFromTimes(startMinutes, endMinutes, pauseMinutes),
     shiftType: "CUSTOM",
     generated: false,
@@ -45,16 +48,18 @@ export function createManualShift(
 /** Ändert Zeiten/Pause einer Schicht und berechnet bezahlte Minuten neu. */
 export function updateShiftTimes(
   shift: Shift,
-  changes: Partial<Pick<Shift, "startMinutes" | "endMinutes" | "pauseMinutes">>,
+  changes: Partial<Pick<Shift, "startMinutes" | "endMinutes" | "pauseMinutes" | "pauseStartMinutes">>,
 ): Shift {
   const startMinutes = changes.startMinutes ?? shift.startMinutes;
   const endMinutes = changes.endMinutes ?? shift.endMinutes;
   const pauseMinutes = changes.pauseMinutes ?? shift.pauseMinutes;
+  const proposed = { ...shift, ...changes, startMinutes, endMinutes, pauseMinutes };
   return {
     ...shift,
     startMinutes,
     endMinutes,
     pauseMinutes,
+    pauseStartMinutes: validPause(proposed) ? proposed.pauseStartMinutes : undefined,
     paidMinutes: paidFromTimes(startMinutes, endMinutes, pauseMinutes),
     shiftType: "CUSTOM",
     generated: false,

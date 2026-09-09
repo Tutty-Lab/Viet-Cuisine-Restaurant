@@ -14,6 +14,7 @@ import { publicHolidayNames, publicHolidays } from "../lib/holidays";
 import { isDayClosed } from "../lib/workHours";
 import { format } from "date-fns";
 import { employmentLabelVi } from "../lib/employment";
+import { PauseLabel } from "./PauseLabel";
 
 /** Chế độ xem theo từng ngày – tối ưu cho điện thoại (không cuộn ngang). */
 export function ScheduleDayView({
@@ -172,7 +173,7 @@ export function ScheduleDayView({
                     {minutesToTime(s.startMinutes)}–{minutesToTime(s.endMinutes)}
                   </div>
                   <div className="text-xs opacity-80">
-                    {minutesToShortHours(s.paidMinutes)} · Nghỉ {s.pauseMinutes}
+                    {minutesToShortHours(s.paidMinutes)} · <PauseLabel shift={s} />
                   </div>
                 </div>
               </button>

@@ -139,7 +139,11 @@ export function StundenzettelPage({
                 {i === 0 && dayCell}
                 <Td className="text-center">{minutesToTime(x.startMinutes)}</Td>
                 <Td className="text-center">{minutesToTime(x.endMinutes)}</Td>
-                <Td className="text-center">{x.pauseMinutes} Min</Td>
+                <Td className="text-center">
+                  {x.pauseMinutes} Min
+                  {x.pauseStartMinutes != null && x.pauseMinutes > 0 &&
+                    <div className="text-[10px]">{minutesToTime(x.pauseStartMinutes)}–{minutesToTime(x.pauseStartMinutes + x.pauseMinutes)}</div>}
+                </Td>
                 <Td className="text-center">{minutesToDecimalHours(x.paidMinutes)}</Td>
                 <Td className="text-left text-slate-500">
                   {i === 0 && holiday ? `Feiertag: ${holiday}` : ""}

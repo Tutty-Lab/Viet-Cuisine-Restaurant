@@ -17,6 +17,8 @@ import { ScheduleDayView } from "./ScheduleDayView";
 import { weeksOfMonth } from "../lib/weeks";
 import { employmentShortVi } from "../lib/employment";
 import { monthlyTargetMinutes } from "../lib/contract";
+import { StaffingReport } from "./StaffingReport";
+import { PauseLabel } from "./PauseLabel";
 
 function isWeekendKey(iso: string): boolean {
   const k = weekdayKeyOf(parseIsoDate(iso));
@@ -229,6 +231,8 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         </div>
       )}
 
+      {schedule.shifts.length > 0 && <StaffingReport analysis={store.analysis} />}
+
       {genError && (
         <div className="mb-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2">
           {genError}
@@ -356,7 +360,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                                     {minutesToTime(x.startMinutes)}–{minutesToTime(x.endMinutes)}
                                   </div>
                                   <div className="text-[10px] opacity-80">
-                                    {minutesToShortHours(x.paidMinutes)} · Nghỉ {x.pauseMinutes}
+                                    {minutesToShortHours(x.paidMinutes)} · <PauseLabel shift={x} />
                                   </div>
                                 </div>
                               ))}

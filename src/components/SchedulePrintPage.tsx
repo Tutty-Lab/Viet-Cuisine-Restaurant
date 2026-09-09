@@ -37,7 +37,8 @@ function ShiftCell({ shifts, closed }: { shifts: Shift[]; closed: boolean }) {
           </div>
           <div className="text-[10px] text-slate-500">
             {minutesToShortHours(shift.paidMinutes)}
-            {shift.pauseMinutes > 0 && ` · P ${shift.pauseMinutes}`}
+            {shift.pauseMinutes > 0 && ` · P ${shift.pauseMinutes}${shift.pauseStartMinutes != null
+              ? ` (${minutesToTime(shift.pauseStartMinutes)}–${minutesToTime(shift.pauseStartMinutes + shift.pauseMinutes)})` : ""}`}
           </div>
         </div>
       ))}

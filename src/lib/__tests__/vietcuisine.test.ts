@@ -15,6 +15,7 @@ import { contractOpenDays, monthlyTargetMinutes, OPEN_DAYS_PER_WEEK } from "../c
 import type { Employee, Shift } from "../../types";
 import { weekStartOf } from "../weeks";
 import { SAMPLE_EMPLOYEES } from "../sampleData";
+import { CLOSING_MAX, CLOSING_MIN, CLOSING_START, workingAt } from "../staffing";
 
 const openDaysOf = (year: number, month: number): number => {
   const hol = publicHolidays(year);
@@ -49,6 +50,23 @@ describe("Wochenvertrag -> Monats-Soll", () => {
   it("ohne weeklyHours gilt targetMinutes direkt", () => {
     const emp: Employee = { id: "a", name: "a", employmentType: "TEILZEIT", targetMinutes: 100 * 60 };
     expect(monthlyTargetMinutes(emp, 26)).toBe(100 * 60);
+  });
+
+  it("requires an explicit pause interval for weekly shifts", () => {
+    const employee = wk("pause", "VOLLZEIT", 39);
+    const shift: Shift = {
+      id: "missing-pause-time",
+      employeeId: employee.id,
+      date: "2026-09-01",
+      startMinutes: 10 * 60 + 30,
+      endMinutes: 17 * 60 + 30,
+      pauseMinutes: 30,
+      paidMinutes: 390,
+      shiftType: "CUSTOM",
+      generated: false,
+    };
+    const result = validateSchedule([employee], [shift], 2026, openDaysOf(2026, 9));
+    expect(result.errors.some((error) => error.message.includes("Chưa xếp giờ bắt đầu nghỉ"))).toBe(true);
   });
 
   const team = (): Employee[] => [
@@ -135,12 +153,13 @@ describe("Wochenplan: feste Wochenstruktur", () => {
     expect([...byWeek.values()].filter((x) => x.days.size === 6).every((x) => x.hours === 39)).toBe(true);
   });
 
-  it("plant Wochenstunden auf kurze Tagesdienste und endet spaetestens 21:30", () => {
+  it("does not exceed daily limits when a small team cannot meet staffing targets", () => {
     const employees = [wk("a", "VOLLZEIT", 39), wk("b", "VOLLZEIT", 39), wk("c", "TEILZEIT", 33)];
     const shifts = generateSchedule({ year: 2026, month: 9, workHours: DEFAULT_WORK_HOURS, employees });
-    const lateEnds = shifts.filter((shift) => shift.endMinutes > 21 * 60 + 30);
-    expect(lateEnds.length).toBeLessThan(shifts.length / 2);
-    expect(shifts.filter((shift) => shift.employeeId === "a").every((shift) => shift.paidMinutes <= 7 * 60)).toBe(true);
+    for (const employee of employees) for (const date of datesOfMonth(2026, 9)) {
+      const paid = shifts.filter((s) => s.employeeId === employee.id && s.date === date).reduce((sum, s) => sum + s.paidMinutes, 0);
+      expect(paid).toBeLessThanOrEqual(540);
+    }
   });
 
   it("besetzt beide Öffnungsblöcke mit mindestens zwei Personen", () => {
@@ -156,12 +175,32 @@ describe("Wochenplan: feste Wochenstruktur", () => {
     }
   });
 
-  it("lässt höchstens eine Person nach 21:30 zum Abschließen", () => {
+  it("keeps five to six people through closing", () => {
     const shifts = generateSchedule({ year: 2026, month: 9, workHours: DEFAULT_WORK_HOURS, employees: SAMPLE_EMPLOYEES });
     const holidays = publicHolidays(2026);
     for (const date of datesOfMonth(2026, 9)) {
       if (resolveDay(DEFAULT_WORK_HOURS, date, holidays, {}).closed) continue;
-      expect(shifts.filter((shift) => shift.date === date && shift.endMinutes > 21 * 60 + 30)).toHaveLength(1);
+      const day = resolveDay(DEFAULT_WORK_HOURS, date, holidays, {});
+      for (let minute = CLOSING_START; minute < day.window.endMinutes; minute++) {
+        const staff = new Set(shifts.filter((shift) => shift.date === date && workingAt(shift, minute)).map((shift) => shift.employeeId)).size;
+        expect(staff, `${date} ${minute}`).toBeGreaterThanOrEqual(CLOSING_MIN);
+        expect(staff, `${date} ${minute}`).toBeLessThanOrEqual(CLOSING_MAX);
+      }
+    }
+  });
+
+  it("staffs Fri-Sun rushes at 1.5 times the normal-day floor", () => {
+    const shifts = generateSchedule({ year: 2026, month: 9, workHours: DEFAULT_WORK_HOURS, employees: SAMPLE_EMPLOYEES });
+    const holidays = publicHolidays(2026);
+    for (const date of datesOfMonth(2026, 9)) {
+      const day = resolveDay(DEFAULT_WORK_HOURS, date, holidays, {});
+      if (day.closed) continue;
+      const weekday = new Date(`${date}T12:00:00`).getDay();
+      const required = [0, 5, 6].includes(weekday) ? 6 : 4;
+      for (let minute = 18 * 60; minute < 20 * 60; minute++) {
+        const staff = new Set(shifts.filter((shift) => shift.date === date && workingAt(shift, minute)).map((shift) => shift.employeeId)).size;
+        expect(staff, `${date} ${minute}`).toBeGreaterThanOrEqual(required);
+      }
     }
   });
 
@@ -175,8 +214,23 @@ describe("Wochenplan: feste Wochenstruktur", () => {
         expect(own.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(employee.weeklyHours! * 60);
         const daily = new Map<string, number>();
         for (const shift of own) daily.set(shift.date, (daily.get(shift.date) ?? 0) + shift.paidMinutes);
-        expect([...daily.values()].every((minutes) => minutes === 6 * 60 + 30 || minutes === 7 * 60)).toBe(true);
+        expect([...daily.values()].every((minutes) => minutes > 0 && minutes <= 540)).toBe(true);
       }
+      const pattern = (week: string) => shifts.filter((s) => s.employeeId === employee.id && weekStartOf(s.date) === week)
+        .map((s) => [new Date(`${s.date}T12:00:00`).getDay(), s.startMinutes, s.endMinutes, s.paidMinutes, s.pauseStartMinutes]);
+      expect(pattern("2026-09-07")).toEqual(pattern("2026-09-14"));
+    }
+  });
+
+  it("allocates busy-day paid hours at 1.5 times normal days within each full week", () => {
+    const shifts = generateSchedule({ year: 2026, month: 9, workHours: DEFAULT_WORK_HOURS, employees: SAMPLE_EMPLOYEES });
+    for (const week of ["2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21"]) {
+      const own = shifts.filter((shift) => weekStartOf(shift.date) === week);
+      const busy = own.filter((shift) => [0, 5, 6].includes(new Date(`${shift.date}T12:00:00`).getDay()));
+      const busyMinutes = busy.reduce((sum, shift) => sum + shift.paidMinutes, 0);
+      const normalMinutes = own.reduce((sum, shift) => sum + shift.paidMinutes, 0) - busyMinutes;
+      expect(busyMinutes / normalMinutes).toBeGreaterThanOrEqual(1.47);
+      expect(busyMinutes / normalMinutes).toBeLessThanOrEqual(1.53);
     }
   });
 });

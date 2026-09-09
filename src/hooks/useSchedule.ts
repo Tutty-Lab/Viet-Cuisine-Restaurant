@@ -188,8 +188,7 @@ export function useSchedule() {
    * es sind schlicht zu wenige Leute im Haus. Vorher fiel das nirgends auf –
    * der Scheduler tut sein Bestes und schweigt, wenn es nicht reicht.
    */
-  const peakGaps = useMemo(() => {
-    if (schedule.shifts.length === 0) return [];
+  const analysis = useMemo(() => {
     return analyzeSchedule({
       year: schedule.year,
       month: schedule.month,
@@ -197,7 +196,7 @@ export function useSchedule() {
       overrides: overridesToMap(schedule.dateOverrides),
       employees: schedule.employees,
       shifts: schedule.shifts,
-    }).peakViolations;
+    });
   }, [
     schedule.year,
     schedule.month,
@@ -206,6 +205,7 @@ export function useSchedule() {
     schedule.employees,
     schedule.shifts,
   ]);
+  const peakGaps = schedule.shifts.length === 0 ? [] : analysis.peakViolations;
 
   /**
    * Gesperrt = eine Woche dieses Monats wurde bereits ausgedruckt. Ab da darf
@@ -409,7 +409,7 @@ export function useSchedule() {
   const editShiftTimes = useCallback(
     (
       shiftId: string,
-      changes: Partial<Pick<Shift, "startMinutes" | "endMinutes" | "pauseMinutes">>,
+      changes: Partial<Pick<Shift, "startMinutes" | "endMinutes" | "pauseMinutes" | "pauseStartMinutes">>,
     ) => {
       setSchedule((s) => {
         if (s.lockedAt) return s; // Monat gedruckt und gesperrt
@@ -423,12 +423,12 @@ export function useSchedule() {
   );
 
   const addShift = useCallback(
-    (employeeId: string, date: string, start: number, end: number, pause: number) => {
+    (employeeId: string, date: string, start: number, end: number, pause: number, pauseStart?: number) => {
       setSchedule((s) => {
         if (s.lockedAt) return s; // Monat gedruckt und gesperrt
         const exists = s.shifts.some((sh) => sh.employeeId === employeeId && sh.date === date);
         if (exists) return s;
-        return { ...s, shifts: [...s.shifts, createManualShift(employeeId, date, start, end, pause)] };
+        return { ...s, shifts: [...s.shifts, createManualShift(employeeId, date, start, end, pause, pauseStart)] };
       });
     },
     [],
@@ -476,6 +476,7 @@ export function useSchedule() {
     originalShifts,
     validation,
     peakGaps,
+    analysis,
     openDays,
     isLocked,
     markWeekPrinted,

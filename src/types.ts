@@ -118,6 +118,8 @@ export type Employee = {
 };
 
 export type Shift = {
+  /** Explicit unpaid break, excluded from staffing coverage. */
+  pauseStartMinutes?: number;
   id: string;
   employeeId: string;
   /** ISO-Datum "yyyy-MM-dd". */

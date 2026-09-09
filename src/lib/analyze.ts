@@ -15,7 +15,6 @@ import {
   weekdayKeyOf,
   type WeekdayKey,
 } from "./demand";
-import { PEAK_WINDOWS_BY_WEEKDAY, maxCoverageOver, minCoverageOver } from "./scheduler";
 import { publicHolidays } from "./holidays";
 import {
   effectiveWeekdayKey,
@@ -23,6 +22,9 @@ import {
   type OverrideMap,
   type WorkHoursConfig,
 } from "./workHours";
+import { coveragePoints, staffingWindows, weightedDailyTargets, workingAt } from "./staffing";
+import { weekStartOf } from "./weeks";
+import { mayWorkOn } from "./availability";
 
 export type PeakCoverage = {
   label: string;
@@ -34,6 +36,8 @@ export type PeakCoverage = {
   /** So viele dürfen höchstens da sein. */
   allowed: number;
   ok: boolean;
+  startMinutes: number;
+  endMinutes: number;
 };
 
 export type DayReport = {
@@ -99,26 +103,37 @@ export function analyzeSchedule(input: AnalyzeInput): ScheduleAnalysis {
   }
 
   // Tages-Soll genauso herleiten wie der Scheduler: geschlossene Tage tragen 0.
-  const totalPaidMinutes = input.shifts.reduce((sum, s) => sum + s.paidMinutes, 0);
-  const weightOf = (date: string): number =>
-    resolveDay(input.workHours, date, holidays, overrides).closed
-      ? 0
-      : DAY_WEIGHTS[effectiveWeekdayKey(date, holidays)];
-  const totalWeight = dates.reduce((sum, d) => sum + weightOf(d), 0);
+  const byWeek = new Map<string, string[]>();
+  for (const date of dates) {
+    if (resolveDay(input.workHours, date, holidays, overrides).closed) continue;
+    const week = weekStartOf(date);
+    byWeek.set(week, [...(byWeek.get(week) ?? []), date]);
+  }
+  const dailyTargets = new Map<string, number>();
+  for (const weekDates of byWeek.values()) {
+    const hours = weekDates.reduce((sum, date) => sum + (byDate.get(date) ?? []).reduce((acc, shift) => acc + shift.paidMinutes, 0), 0) / 60;
+    for (const [date, target] of weightedDailyTargets(weekDates, hours, (value) => effectiveWeekdayKey(value, holidays))) dailyTargets.set(date, target);
+  }
+  const employeesById = new Map(input.employees.map((employee) => [employee.id, employee]));
 
   const days: DayReport[] = [];
   for (const date of dates) {
     const day = resolveDay(input.workHours, date, holidays, overrides);
     const onDay = byDate.get(date) ?? [];
+    const available = onDay.filter((shift) => {
+      const employee = employeesById.get(shift.employeeId);
+      return employee && mayWorkOn(employee, date);
+    });
 
     const peaks: PeakCoverage[] = [];
     if (!day.closed) {
-      for (const peak of PEAK_WINDOWS_BY_WEEKDAY[effectiveWeekdayKey(date, holidays)]) {
-        const from = Math.max(peak.startMinutes, day.window.startMinutes);
-        const to = Math.min(peak.endMinutes, day.window.endMinutes);
-        if (to <= from) continue; // Spitze liegt außerhalb der Arbeitszeit
-        const minStaff = minCoverageOver(onDay, from, to);
-        const maxStaff = maxCoverageOver(onDay, from, to);
+      for (const peak of staffingWindows(day.blocks, effectiveWeekdayKey(date, holidays))) {
+        const from = peak.startMinutes;
+        const to = peak.endMinutes;
+        const points = coveragePoints(available, from, to).slice(0, -1);
+        const counts = points.map((minute) => new Set(available.filter((shift) => workingAt(shift, minute)).map((shift) => shift.employeeId)).size);
+        const minStaff = counts.length ? Math.min(...counts) : 0;
+        const maxStaff = counts.length ? Math.max(...counts) : 0;
         peaks.push({
           label: peak.label,
           minStaff,
@@ -126,6 +141,8 @@ export function analyzeSchedule(input: AnalyzeInput): ScheduleAnalysis {
           required: peak.minStaff,
           allowed: peak.maxStaff,
           ok: minStaff >= peak.minStaff && maxStaff <= peak.maxStaff,
+          startMinutes: from,
+          endMinutes: to,
         });
       }
     }
@@ -136,7 +153,7 @@ export function analyzeSchedule(input: AnalyzeInput): ScheduleAnalysis {
       closed: day.closed,
       shiftCount: onDay.length,
       paidHours: onDay.reduce((sum, s) => sum + s.paidMinutes, 0) / 60,
-      targetHours: totalWeight > 0 ? (totalPaidMinutes * weightOf(date)) / totalWeight / 60 : 0,
+      targetHours: dailyTargets.get(date) ?? 0,
       peaks,
     });
   }

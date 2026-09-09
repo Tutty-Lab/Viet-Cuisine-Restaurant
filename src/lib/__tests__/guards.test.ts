@@ -88,23 +88,54 @@ describe("Zu wenige Leute in der Stoßzeit", () => {
       .find((d) => d.date === "2026-08-01")!
       .peaks.find((p) => p.label === "Tối" && !p.ok)!;
     expect(abend.minStaff).toBe(1); // so viele stehen wirklich da
-    expect(abend.required).toBe(2); // so viele müssen es mindestens sein
+    expect(abend.required).toBe(6);
   });
 
-  it("lässt zwei Personen im Abendfenster in Ruhe", () => {
+  it("accepts six people throughout a Saturday evening rush", () => {
     const zwei = analyzeSchedule({
       year: 2026,
       month: 8,
       workHours: DEFAULT_WORK_HOURS,
-      employees: [emp("a", "TEILZEIT", 30), emp("b", "TEILZEIT", 30)],
-      shifts: [
-        shifts[0],
-        { ...shifts[0], id: "s1", employeeId: "b" },
-      ],
+      employees: Array.from({ length: 6 }, (_, index) => emp(String(index), "TEILZEIT", 30)),
+      shifts: Array.from({ length: 6 }, (_, index) => ({ ...shifts[0], id: `s${index}`, employeeId: String(index) })),
     });
     const tag = zwei.peakViolations.find((d) => d.date === "2026-08-01");
     // Am 1.8. ist die Abendspitze jetzt voll; ein etwaiger Verstoß an dem Tag
     // käme nur noch von der Mittagsspitze am Sonntag – die gibt es hier nicht.
     expect(tag?.peaks.find((p) => p.label === "Tối")?.ok ?? true).toBe(true);
+  });
+
+  it("counts a concrete pause as absent during rush coverage", () => {
+    const paused = analyzeSchedule({
+      year: 2026,
+      month: 8,
+      workHours: DEFAULT_WORK_HOURS,
+      employees: Array.from({ length: 6 }, (_, index) => emp(String(index), "TEILZEIT", 30)),
+      shifts: Array.from({ length: 6 }, (_, index) => ({
+        ...shifts[0],
+        id: `pause-${index}`,
+        employeeId: String(index),
+        ...(index === 0 ? { pauseStartMinutes: 18 * 60 } : {}),
+      })),
+    });
+    const evening = paused.days.find((day) => day.date === "2026-08-01")!
+      .peaks.find((peak) => peak.label === "Tối")!;
+    expect(evening.minStaff).toBe(5);
+    expect(evening.ok).toBe(false);
+  });
+
+  it("checks staffing when the evening block reopens at 16:30", () => {
+    const report = analyzeSchedule({
+      year: 2026,
+      month: 9,
+      workHours: DEFAULT_WORK_HOURS,
+      employees,
+      shifts: [{ ...shifts[0], date: "2026-09-01", startMinutes: 17 * 60 + 30 }],
+    });
+    const reopening = report.days.find((day) => day.date === "2026-09-01")!
+      .peaks.find((peak) => peak.label === "Đầu ca tối")!;
+    expect(reopening.startMinutes).toBe(16 * 60 + 30);
+    expect(reopening.minStaff).toBe(0);
+    expect(reopening.ok).toBe(false);
   });
 });

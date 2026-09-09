@@ -1,206 +1,145 @@
 # Dienstplan & Stundenzettel — Viet Cuisine GmbH
 
-Haupt Straße 11, 92348 Berg (Oberpfalz, Bayern). Abgeleitet aus der Kylan-App
-(zwei Öffnungsblöcke je Tag, geteilte Dienste).
+Haupt Straße 11, 92348 Berg (Oberpfalz, Bayern). React-Anwendung für
+Wochenplanung innerhalb eines Monats und deutsche Stundenaufzeichnungen.
+Die Oberfläche ist auf Vietnamesisch.
 
-**Vorgaben des Betriebs:**
+## Öffnungszeiten und Besetzung
 
-- **Montag geschlossen.**
-- **Di–Sa zwei getrennte Blöcke:** 10:30–14:30 und 16:30–22:30
-  (Mittagsschließung 14:30–16:30).
-- **Sonntag und Feiertag durchgehend 10:30–22:00**, ohne Mittagspause. Feiertage
-  sind also OFFEN (wie ein Sonntag) – Feiertage nach **Bayern** (Heilige Drei
-  Könige, Fronleichnam, Mariä Himmelfahrt, Allerheiligen …).
-- **Wochenverträge:** die Stunden stehen je Woche (Vollzeit = 39 h/Woche). Das
-  Monats-Soll leitet die App je Monat ab: `Wochenstunden × offene Tage ÷ 6`
-  (sechs offene Tage die Woche, Di–So). Eingegeben und angezeigt wird in
-  Wochenstunden (`weeklyHours`, siehe `contract.ts`).
-- **Eine feste Frühschicht:** eine Kraft arbeitet nur **6:30–14:30** (Vorbereitung
-  ab vor Ladenöffnung). Angehakt je Person (`fixedShift`); die App legt für sie
-  nur Dienste in genau diesem Fenster an. Da ein fester Dienst nicht gekürzt
-  werden kann, trifft er das Monats-Soll best effort – ein kleiner Rest bleibt
-  und wird als Warnung gemeldet.
-- **Stoßzeit 18:00–20:00** an jedem Öffnungstag (mindestens 2 Personen, keine
-  Obergrenze). **Sonntagmittag 12:00–14:00** zusätzlich stark; sonst ist mittags
-  wenig los.
-- **Freitag, Samstag, Sonntag** machen etwa das Anderthalbfache Umsatz eines
-  normalen Tages (`DAY_WEIGHTS` = 1,5; übrige Tage 1,0).
-- **Pause nach § 4 ArbZG**: über 6 h = 30 Min, über 9 h = 45 Min.
-- **Urlaub** je Person im Tab *Nhân viên* (Arbeitstage, § 3 BUrlG; über dem
-  Jahresanspruch nur eine Warnung).
-- Belegschaft laut Angabe: **12 Personen** (Wochenstunden). Mitten im Monat
-  startende/wechselnde Verträge (ab 7.9., ab 10.9., ab Oktober) trägt der
-  Betrieb je Monat ein; ein Teilmonat wird über Urlaubstage vor dem Start
-  abgebildet.
+- **Montag geschlossen, auch an einem Feiertag.** Montagsfeiertage sind nicht
+  abschließend geklärt; bis dahin gilt die explizite Montagsschließung.
+  Nur eine Datumsausnahme mit eigenen Zeiten öffnet den Tag.
+- **Di–Sa:** 10:30–14:30 und 16:30–22:30. Die Mittagsschließung
+  14:30–16:30 zählt nicht als Arbeitszeit.
+- **Sonntag und geöffnete Feiertage:** durchgehend 10:30–22:00.
+  Bayerische Feiertage zählen bei Öffnungsfenster und Nachfrage wie Sonntag;
+  Datumsausnahmen haben Vorrang.
+- **Jeder Öffnungsblock benötigt mindestens 2 arbeitende Personen am Anfang.**
+  Das gilt auch für die Wiederöffnung um 16:30. Vor der Mittagsschließung
+  werden ebenfalls mindestens 2 Personen benötigt.
+- **21:30 bis zum tatsächlichen Tagesende: 5–6 arbeitende Personen.**
+  Üblicherweise bis 22:30, sonntags und an geöffneten Feiertagen bis 22:00.
+- **Betriebliche Stoßzeiten:** 18:00–20:00 sowie sonntags 12:00–14:00.
+  Die Planung verwendet abends **4 Personen an normalen Tagen, 6 an starken
+  Tagen** und **6 sonntags/feiertags mittags**. Diese Zahlen sind ausdrücklich
+  **abgeleitete Planungsziele der Implementierung**, keine vom Kunden genannten
+  Personenzahlen für die Stoßzeit.
 
-> **Annahmen, die der Betrieb noch bestätigen sollte.** Die Personenzahl je
-> Stoßzeit (mindestens 2), das Sonntagsmittags-Fenster (12–14) und die
-> Zuordnung der festen Frühschicht zu einer konkreten Person sind Annahmen und
-> stehen an je einer Stelle im Code.
+Die Mindestbesetzung gilt über das jeweilige Prüfintervall, geschnitten mit den
+tatsächlich geöffneten Blöcken. Pausierende Personen zählen nicht als arbeitend.
+Der Bericht nennt die Prüfzeiten, das Minimum und Maximum der Besetzung sowie
+den Vergleichswert.
 
-Web-App zur **automatischen Erstellung monatlicher Dienstpläne** und **druckbarer
-deutscher Stundenzettel** für ein Restaurant / Geschäft in Deutschland.
+## Verträge, Wochenmuster und Nachfrage
 
-- Kein eigener Server, kein Solver, kein KI-Modell.
-- Deterministischer, heuristischer Greedy-Algorithmus.
-- Der Plan trifft **jedes monatliche Soll exakt** und lässt sich anschließend
-  manuell bearbeiten.
-- Persistenz: **LocalStorage** als Offline-Puffer, zusätzlich **Supabase**
-  (`store_data`), sofern `VITE_SUPABASE_URL` und `VITE_SUPABASE_ANON_KEY`
-  gesetzt sind. Alle Filialen teilen sich eine Tabelle und werden nur über
-  `STORE_ID` getrennt (siehe `src/lib/supabase.ts`) – diese Kennung MUSS je
-  Repo eindeutig sein.
-- Einfache Passwortsperre im Client (`src/lib/auth.ts`), keine echte
-  Zugriffskontrolle.
+- **Wochenverträge sind harte Grenzen.** Fehlende Stunden dürfen weder durch
+  Überschreiten des Vertrags noch durch Verschieben in eine andere ISO-Woche
+  kaschiert werden. ISO-Wochen laufen Montag bis Sonntag; Randwochen zählen
+  anteilig. Zusätzliche Öffnungstage erhöhen den Wochenvertrag nicht.
+- **39 h/Woche ist der übliche Vollzeitvertrag.** Vorhandene 40-h-Verträge
+  bleiben bestehen. Keine automatische Umstellung der Belegschaft.
+- **Vollzeit bevorzugt ein wiederkehrendes Muster je Wochentag**, meistens mit
+  sechs Arbeitstagen und ungefähr 6–7 h/Tag. Identische 6,5 h an jedem Tag
+  liefern jedoch keinen Nachfrageunterschied. Tageslängen und flexible
+  Einsätze müssen Spielraum lassen, wenn das Wochenende stärker besetzt sein soll.
+- Verfügbare Wochentage, gesperrte Daten, Wochenarbeitstage, höchstens sechs
+  aufeinanderfolgende Arbeitstage und zulässige Tagesarbeitszeit begrenzen
+  jede Zuteilung. Geteilte Dienste bleiben innerhalb ihrer Öffnungsblöcke
+  und dürfen sich nicht überschneiden.
 
-## Tech-Stack
+**Freitag, Samstag und Sonntag: Nachfragegewicht 1,5; normale Tage: 1,0.**
+Das ist ein Optimierungsziel, keine Garantie für exakt 1,5-mal so viele
+Arbeitsstunden. Geschlossene Tage haben kein Gewicht; geöffnete Feiertage zählen
+wie Sonntag. Tagesziele werden **je ISO-Woche** auf die tatsächlich erreichbaren,
+zugeteilten Stunden normalisiert:
 
-React · TypeScript · Vite · Tailwind CSS · date-fns · Browser-Druck (PDF) ·
-LocalStorage · Vitest.
+```text
+Tagesziel = zugeteilte Stunden dieser Woche × Tagesgewicht
+           ÷ Summe der Gewichte ihrer geöffneten Tage
+```
 
-## Installation & Start
+Diese Vergleichsziele ersetzen keine Vertragsprüfung: weniger zugeteilte Stunden
+senken auch die Vergleichsziele, beseitigen aber kein Vertragsdefizit. Gleiche
+6,5 h täglich, exakte Wochenverträge, Verfügbarkeit, Besetzungsgrenzen und ein
+striktes Tagesverhältnis von 1,5 sind nicht immer gleichzeitig erfüllbar.
+Nicht erreichte Ziele und Besetzungslücken müssen sichtbar bleiben; ein
+erzeugter Plan ist keine Zusage, dass alle Vorgaben erfüllt sind.
+
+## Laca und Pausen
+
+Die besondere Frühschicht **06:30–14:30 (Laca)** bleibt **keiner Person
+zugeordnet**. Der Nutzer hat keine Zuordnung gewünscht („không cần“).
+`fixedShift` beschreibt eine ausdrücklich eingetragene feste Schicht;
+die App soll keine Identität aus Namen oder Verträgen ableiten.
+
+Mit 30 Minuten unbezahlter Pause liefert dieses Fenster 7,5 h Arbeitszeit.
+Fünf unveränderte Dienste ergeben 37,5 h, sechs ergeben 45 h. Ein Vertrag
+von 39 h lässt sich damit allein nicht exakt erreichen. Ein solcher Rest ist
+getrennt auszuweisen, ohne Vertragsstunden still zu ändern.
+
+Pausen sind explizite Zeitintervalle innerhalb einer Schicht. Über 6 h bezahlter
+Arbeit fallen 30 Minuten Pause an, über 9 h 45 Minuten. Beispiel: 6,5 h Arbeit
+plus 30 Minuten Pause bedeuten 7 h Anwesenheit. Keine Arbeitsphase darf länger
+als sechs Stunden ohne Pause dauern. Die Mittagsschließung zwischen getrennten
+Diensten bleibt unbezahlte Unterbrechung. Alte oder bearbeitete lange Schichten
+ohne gültiges Pausenintervall benötigen Prüfung; bloße Anwesenheit ist kein
+Nachweis für Besetzung während einer Pause.
+
+## Bericht und Bedienung
+
+1. **Cài đặt:** Monat, Öffnungszeiten und Datumsausnahmen prüfen.
+2. **Nhân viên:** bestehende Wochenverträge und Verfügbarkeit prüfen.
+   Fehlende Stunden sind kein Anlass, Verträge automatisch umzuschreiben.
+3. **Lịch làm việc:** Plan erzeugen, danach Vertragsfehler und Besetzungsbericht
+   prüfen. Zeiten, explizite Pausen und manuelle Änderungen beeinflussen die
+   Besetzung erneut.
+4. **Bảng chấm công:** Stundenaufzeichnungen und Dienstpläne drucken.
+   Nach Änderungen an einem bereits gedruckten Stand auch die betroffenen
+   Ausdrucke ersetzen.
+
+`StaffingReport` erhält `analysis: ScheduleAnalysis`. Er zeigt je Datum und
+Wochentag Zielstunden, zugeteilte Stunden und deren Differenz. Je vollständiger
+ISO-Woche vergleicht er die durchschnittlichen Tagesstunden Fr–So mit Di–Do;
+Randwochen oder Wochen mit geschlossenen Vergleichstagen erhalten kein
+irreführendes Verhältnis. Bei null Stunden im Nenner ist es nicht berechenbar.
+Die Zielquote wird aus den Tageszielen gelesen, damit Feiertage berücksichtigt
+bleiben. Zusätzlich zeigt jeder Prüfbereich seine Zeiten, Ist-Besetzung,
+benötigte Unter-/Obergrenze und Abweichung. Ein erfüllter Prüfbereich ist keine
+Bestätigung der gesamten Vertrags- oder Pausenprüfung.
+
+## Entwicklung
+
+React, TypeScript, Vite, Tailwind CSS, date-fns und Vitest; Druck/PDF über Browser
+und PDF-Hilfen. Lokaler Start:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Die App läuft danach unter der von Vite angezeigten URL (Standard
-`http://localhost:5173`).
-
-## Weitere Befehle
-
 ```bash
-npm run test     # Unit-Tests (Vitest)
-npm run build    # Produktions-Build (tsc + vite build)
-npm run preview  # Produktions-Build lokal ansehen
+npm run test
+npm run build
+npm run preview
 ```
 
-## Bedienung
+Persistenz über LocalStorage und optional Supabase (`store_data`), konfiguriert
+mit `VITE_SUPABASE_URL` und `VITE_SUPABASE_ANON_KEY`. `STORE_ID` muss je Filiale
+eindeutig sein. Die Passwortsperre im Client ersetzt keine Zugriffskontrolle.
 
-1. **Einstellungen** – Firmenname, Anschrift, Monat, Jahr; **Arbeitszeit-Fenster
-   je Wochentag + Feiertag** (giờ làm; mehrere Blöcke je Tag möglich,
-   **Montag geschlossen**). **Feiertage (Bayern)** werden automatisch erkannt
-   und angezeigt. Unter **„Ngày đặc biệt"** lassen sich einzelne Tage
-   überschreiben (geschlossen oder abweichende Zeiten, z.B. halber Tag).
-2. **Mitarbeiter** – Vollzeit/Teilzeit und monatliche Sollstunden pflegen
-   (Feld „Giờ định mức"); daneben steht, in wie viele Dienste sich das Soll
-   zerlegen lässt.
-3. **Dienstplan** – **„Dienstplan erstellen"** generiert den Monatsplan.
-   Zellen sind anklickbar: Zeiten/Pause ändern, als *Frei* markieren,
-   Schicht verschieben, hinzufügen, löschen. **„Auf Original zurücksetzen"**
-   stellt den zuletzt generierten Plan wieder her. **CSV-Export** verfügbar.
-4. **Stundenzettel** – druckbarer A4-Zettel je Mitarbeiter,
-   einzeln oder alle (über den Druckdialog als PDF speichern).
+Wichtige Module:
 
-## Geschäftsregeln (Kurzfassung)
+- `src/lib/weeklyScheduler.ts`: Wochenzuteilung und Schichtanordnung.
+- `src/lib/contract.ts`: Vertragsumrechnung und Wochenquoten.
+- `src/lib/workHours.ts`: Öffnungsblöcke, Montagsschließung und Ausnahmen.
+- `src/lib/staffing.ts`: Besetzungsfenster, Pausen und gewichtete Tagesziele.
+- `src/lib/analyze.ts`: tatsächliche Besetzung und Stundenvergleich.
+- `src/lib/validation.ts`: Vertrags- und Schichtprüfung.
+- `src/components/StaffingReport.tsx`: Besetzungsbericht aus der Analyse.
+- `src/lib/__tests__/`: Regressionstests; Erfolg einzelner Beispiele beweist
+  keine allgemeine Lösbarkeit aller möglichen Eingaben.
 
-Maßgeblich ist immer der Code; die Doku-Tabellen in der App (Tab **Tài liệu**)
-werden direkt aus den Konstanten gerendert und können daher nicht veralten.
-
-- Max. **9 bezahlte Stunden** pro Tag. **Geteilte Dienste sind erlaubt**: eine
-  Person darf mittags UND abends arbeiten – höchstens ein Dienst je
-  Öffnungsblock, und zwei Dienste dürfen sich nie überschneiden. Die alte Regel
-  "ein Dienst pro Tag" stammt aus einer Filiale ohne Mittagsschließung; hier
-  drückte sie die Monatsdecke auf 161 h, obwohl im Laden längst mittags und
-  abends gearbeitet wird.
-  - Die LÜCKE zwischen zwei Diensten wird so klein wie möglich gehalten
-    (`tightenSplitShifts`) – im Normalfall genau die Schließzeit. Ohne das
-    entstand 11:30–14:30 und dann erst 19:00–22:00: sechs bezahlte Stunden, für
-    die jemand von halb zwölf bis zehn im Dienst ist, mit zwei Wegen. Nur wenn
-    das engere Rücken die Stoßzeit schlechter besetzt, bleibt die Lücke.
-- Höchstens **6 aufeinanderfolgende** Arbeitstage.
-- **Pause** (`calculatePause`) nach § 4 ArbZG: über 6 h = 30 Min, über 9 h =
-  45 Min. Das ArbZG ist Bundesrecht und gilt überall gleich.
-  `presence = paid + pause`.
-- Schichtlängen: **3 bis 9 Stunden**. Vollzeit bekommt 4..9 h, Teilzeit 3..9 h.
-  Etwa jede zehnte Schicht wird bewusst auf 4–5 h gekürzt
-  (`SHORT_SHIFT_CHANCE`), damit die Pläne nicht mechanisch aussehen – aber nur,
-  wenn der Tag keinen langen Dienst mehr für die Stoßzeit braucht.
-- **Stoßzeiten** (`PEAK_WINDOWS_BY_WEEKDAY`, je Wochentag verschieden):
-  Abendspitze **18:00–20:00** an jedem Öffnungstag (mindestens 2 Personen, keine
-  Obergrenze), am Sonntag zusätzlich die Mittagsspitze **12:00–14:00**. Geprüft
-  wird über die **ganze Spanne**, nicht an einem einzelnen Zeitpunkt.
-  - Die Obergrenze greift schon bei der **Wahl der Schichtlänge**
-    (`peakLengthCapHours`), nicht erst beim Anordnen: ein 9-h-Dienst hat in
-    einem 9-h-Fenster genau **eine** mögliche Lage, drei davon lassen sich
-    durch kein Umsortieren mehr entzerren.
-  - `repairPeakExcess` tauscht danach noch Termine (die Dauer bleibt bei der
-    Person, das Monats-Soll also unangetastet), solange das die Lage
-    verbessert.
-  - Bleibt trotzdem ein Tag übrig, ist der Plan gültig; das Dashboard weist ihn
-    als Warnung aus (`analyzeSchedule.peakViolations`).
-- Nachfrage-Gewichte pro Wochentag (`DAY_WEIGHTS`) → mehr Stunden zum
-  **Wochenende** hin. Der Ausschlag ist bewusst flach: mehr Stunden helfen
-  nichts, wo ohnehin nur zwei Leute stehen dürfen. **Feiertage zählen wie
-  Sonntag** (Nachfrage + Zeitfenster).
-- **Arbeitszeit-Fenster je Tag** (giờ làm): Früh am Fenster-Beginn, Spät am
-  Fenster-Ende. Geschlossene Tage bekommen keine Schicht; an verkürzten Tagen
-  werden nur passende (kurze) Schichten geplant. Reicht das nicht, um beide
-  Stoßzeiten zu decken, ordnet `layoutDayForPeaks` die Dienste innerhalb des
-  Fensters neu an – Dauer und Pause bleiben dabei unverändert.
-- **Sollstunden pflegt der Betrieb selbst** (Tab *Nhân viên*, Feld
-  „Giờ định mức"). Ein Soll unter der kürzesten Schicht (3 h) ist nicht
-  planbar und wird mit einer eigenen Meldung abgelehnt.
-
-## Projektstruktur
-
-```
-src/
-  types.ts                 zentrale Typen (intern immer Minuten als Integer)
-  lib/
-    time.ts                timeToMinutes, minutesToTime, calculatePause, ...
-    shifts.ts              Schicht-Vorlagen (Früh/Spät)
-    demand.ts              Tagesgewichte, Spätschicht-Quoten, Kalender
-    splitTargetHours.ts    Zerlegung des Solls in Schichtlängen (DP)
-    consecutive.ts         Ketten aufeinanderfolgender Tage, seeded RNG
-    workHours.ts           Öffnungs-BLÖCKE je Tag (mehrere möglich) + Overrides
-    holidays.ts            Bayerische Feiertage (Osterformel/Computus)
-    scheduler.ts           Greedy-Scheduler, Reparaturlauf, Stoßzeiten-Layout
-    validation.ts          Prüfung aller Regeln
-    analyze.ts             Auswertung: Stoßzeiten, Gewichtstreue, Abweichung
-    storage.ts             LocalStorage
-    supabase.ts            Client + STORE_ID dieser Filiale
-    remote.ts              Laden/Speichern in store_data
-    auth.ts                Passwortsperre (nur clientseitig)
-    company.ts             Firmenname und Anschrift (fest)
-    pdf.ts                 Druck/PDF des Stundenzettels
-    sampleData.ts          Beispielbelegschaft (August 2026) – nur für Tests
-    seedData.ts            drei Monate mit wechselnden Belegschaften (Tests)
-    shiftOps.ts            manuelles Bearbeiten von Schichten
-    dateFormat.ts          deutsche Monatsnamen / Formatierung
-    __tests__/             Unit-Tests
-  hooks/useSchedule.ts     zentrales State-Management + Persistenz
-  components/              UI (Einstellungen, Mitarbeiter, Dienstplan, Stundenzettel)
-```
-
-## Tests
-
-Getestet werden u. a. `timeToMinutes`, `minutesToTime`, `calculatePause`,
-`calculatePaidMinutes`, `splitTargetHours`, die Berechnung aufeinanderfolgender
-Tage und die Monats-Validierung.
-
-`seedMonths.test.ts` fährt den Scheduler gegen **drei Monate mit
-unterschiedlichen Belegschaften** und prüft: jedes Einzelsoll exakt, höchstens
-6 Tage am Stück, Schichtlängen 3..9 h mit passender Pause, keine Schicht
-außerhalb des Fensters – und beide Stoßzeiten durchgehend doppelt besetzt.
-Diese letzte Prüfung gibt es doppelt: einmal über `minCoverageOver`, einmal als
-stumpfe Gegenprobe, die **jede Minute einzeln nachzählt**. Wäre die Abtastung
-falsch, meldete die Auswertung sonst fälschlich „alles grün".
-
-`guards.test.ts` deckt die zwei Fälle ab, die der Betrieb durch eigene Eingaben
-auslöst: ein Soll unter 3 h (eigene Fehlermeldung statt Kapazitäts-Vortrag) und
-eine zu dünne Belegschaft (Plan bleibt korrekt, Lücken werden gemeldet).
-
-Der Report in `seedMonths.test.ts` schreibt zusätzlich Schichtlängen-Verteilung,
-Gewichtstreue je Wochentag und die Abweichung vom Tages-Soll auf die Konsole.
-
-## Hinweise / Grenzen (MVP)
-
-- Sollstunden aktuell in **ganzen Stunden**, mindestens 3 h.
-- `Schedule` hält immer **genau einen Monat**. Es gibt kein Archiv über
-  mehrere Monate; ein Monatswechsel ersetzt den Stand.
-- Schicht-Vorlagen sind exakt vorgegeben für 10:00–22:00 und nur für
-  pausenfreie Längen; sonst werden Früh-/Spät-Zeiten generisch abgeleitet.
-- Der Plan ist „operativ plausibel", nicht mathematisch optimal. Die mittlere
-  Abweichung vom rechnerischen Tages-Soll liegt in den Testmonaten bei 1–2 %.
+`Schedule` enthält einen Monat. Verfügbarkeitsengpässe, feste Schichten,
+Monatsgrenzen und das Zeitraster können Ziele unerreichbar machen. Reststunden,
+Vertragsfehler, Besetzungslücken und Abweichungen vom Nachfrageziel sind getrennt
+zu beurteilen. Es gibt keine Garantie für eine global optimale Lösung.
