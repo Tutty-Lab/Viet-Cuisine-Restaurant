@@ -85,8 +85,7 @@ export function StundenzettelPage({
       <table className="w-full border-collapse text-[11px]">
         <thead>
           <tr className="bg-slate-100">
-            <Th>Datum</Th>
-            <Th>Wochentag</Th>
+            <Th>Datum / Wochentag</Th>
             <Th>Arbeitsbeginn</Th>
             <Th>Arbeitsende</Th>
             <Th>Pause</Th>
@@ -110,6 +109,13 @@ export function StundenzettelPage({
             const rowCls = wd === "Samstag" || wd === "Sonntag" || holiday || closed ? "bg-slate-50" : "";
             const datum = format(parseIsoDate(d), "dd.MM.yyyy");
 
+            const dayCell = (
+              <Td rowSpan={Math.max(1, dienste.length)} className="align-top whitespace-nowrap">
+                <div>{datum}</div>
+                <div className="text-slate-500">{wd}</div>
+              </Td>
+            );
+
             if (dienste.length === 0) {
               const bemerkung = closed
                 ? closed.note || "Betriebsruhe"
@@ -118,8 +124,7 @@ export function StundenzettelPage({
                   : "Frei";
               return [
                 <tr key={d} className={rowCls}>
-                  <Td>{datum}</Td>
-                  <Td>{wd}</Td>
+                  {dayCell}
                   <Td className="text-center" />
                   <Td className="text-center" />
                   <Td className="text-center" />
@@ -131,8 +136,7 @@ export function StundenzettelPage({
 
             return dienste.map((x, i) => (
               <tr key={`${d}#${i}`} className={rowCls}>
-                <Td>{datum}</Td>
-                <Td>{wd}</Td>
+                {i === 0 && dayCell}
                 <Td className="text-center">{minutesToTime(x.startMinutes)}</Td>
                 <Td className="text-center">{minutesToTime(x.endMinutes)}</Td>
                 <Td className="text-center">{x.pauseMinutes} Min</Td>
@@ -146,7 +150,7 @@ export function StundenzettelPage({
         </tbody>
         <tfoot>
           <tr className="font-semibold bg-slate-100">
-            <Td className="text-left" colSpan={5}>
+            <Td className="text-left" colSpan={4}>
               Gesamtstunden
             </Td>
             <Td className="text-center">{minutesToDecimalHours(totalMinutes)}</Td>
@@ -214,13 +218,15 @@ function Td({
   children,
   className = "",
   colSpan,
+  rowSpan,
 }: {
   children?: React.ReactNode;
   className?: string;
   colSpan?: number;
+  rowSpan?: number;
 }) {
   return (
-    <td colSpan={colSpan} className={`border border-slate-300 px-2 py-[3px] ${className}`}>
+    <td colSpan={colSpan} rowSpan={rowSpan} className={`border border-slate-300 px-2 py-[3px] ${className}`}>
       {children}
     </td>
   );

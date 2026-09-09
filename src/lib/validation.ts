@@ -11,6 +11,7 @@ import {
 import { monthlyTargetMinutes } from "./contract";
 import { calculatePause } from "./time";
 import { maxConsecutiveRun } from "./consecutive";
+import { weekStartOf } from "./weeks";
 
 export type ValidationError = {
   employeeId?: string;
@@ -167,8 +168,36 @@ export function validateSchedule(
     }
 
     const assignedMinutes = empShifts.reduce((sum, s) => sum + s.paidMinutes, 0);
-    const maxRun = maxConsecutiveRun(empShifts.map((s) => s.date));
+    const maxRun = maxConsecutiveRun(new Set(empShifts.map((s) => s.date)));
     const soll = sollOf(emp);
+
+    if (emp.weeklyHours != null) {
+      const weeks = new Map<string, { paid: number; dates: Set<string> }>();
+      for (const shift of empShifts) {
+        const week = weekStartOf(shift.date);
+        const total = weeks.get(week) ?? { paid: 0, dates: new Set<string>() };
+        total.paid += shift.paidMinutes;
+        total.dates.add(shift.date);
+        weeks.set(week, total);
+      }
+      for (const [week, total] of weeks) {
+        if (total.paid > Math.round(emp.weeklyHours * 60)) {
+          errors.push({
+            employeeId: emp.id,
+            date: week,
+            message: `${emp.name}: tuần ${week} xếp ${total.paid / 60}h, vượt hợp đồng ${emp.weeklyHours}h/tuần.`,
+          });
+        }
+        const maxDays = Math.min(6, emp.maxDaysPerWeek ?? 6, emp.isOwner ? 5 : 6);
+        if (total.dates.size > maxDays) {
+          errors.push({
+            employeeId: emp.id,
+            date: week,
+            message: `${emp.name}: tuần ${week} làm ${total.dates.size} ngày, vượt giới hạn ${maxDays} ngày/tuần.`,
+          });
+        }
+      }
+    }
 
     if (assignedMinutes !== soll) {
       // Zu WENIG verteilt heißt: der Monat gibt nicht mehr her (oder eine feste

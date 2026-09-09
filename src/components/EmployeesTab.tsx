@@ -2,9 +2,7 @@ import { useMemo, useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee, EmploymentType } from "../types";
 import { splitTargetHours } from "../lib/splitTargetHours";
-import { resolveDay } from "../lib/workHours";
-import { publicHolidays } from "../lib/holidays";
-import { datesOfMonth, WEEKDAY_SHORT_VI, type WeekdayKey } from "../lib/demand";
+import { WEEKDAY_SHORT_VI, type WeekdayKey } from "../lib/demand";
 import { monthlyTargetMinutes } from "../lib/contract";
 import { employmentLabelVi, employmentShortVi } from "../lib/employment";
 import { minutesToTime, timeToMinutes } from "../lib/time";
@@ -101,21 +99,8 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
 }
 
 export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
-  const { schedule, addEmployee, updateEmployee, removeEmployee } = store;
+  const { schedule, openDays, addEmployee, updateEmployee, removeEmployee } = store;
   const locked = Boolean(schedule.lockedAt);
-
-  const holidays = useMemo(() => publicHolidays(schedule.year), [schedule.year]);
-  const overrides = useMemo(
-    () => Object.fromEntries(schedule.dateOverrides.map((o) => [o.date, o])),
-    [schedule.dateOverrides],
-  );
-  const openDays = useMemo(
-    () =>
-      datesOfMonth(schedule.year, schedule.month).filter(
-        (d) => !resolveDay(schedule.workHours, d, holidays, overrides).closed,
-      ).length,
-    [schedule.year, schedule.month, schedule.workHours, holidays, overrides],
-  );
 
   // null = zu; "new" = anlegen; sonst = die id, die bearbeitet wird.
   const [offen, setOffen] = useState<null | "new" | string>(null);
@@ -147,8 +132,8 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
         </button>
       </div>
       <p className="text-xs text-slate-500 mb-4">
-        Giờ nhập theo <b>tuần</b>. Định mức tháng = giờ/tuần × số ngày mở ÷ 6 (nghỉ thứ 2).
-        Tháng này có <b>{openDays}</b> ngày mở. Bấm vào một người để sửa.
+        Giờ nhập theo <b>tuần</b>. Tuần đủ 6 ngày giữ đúng giờ hợp đồng; tuần đầu/cuối tháng tính theo ngày.
+        Tháng này tính định mức trên <b>{openDays}</b> ngày, tối đa 6 ngày mỗi tuần. Bấm vào một người để sửa.
       </p>
 
       {locked && (
@@ -270,8 +255,7 @@ function EmployeeSheet({
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) =>
     setD((prev) => ({ ...prev, [k]: v }));
 
-  const weekly = Math.max(0, Math.round(Number(d.weekly) || 0));
-  const monatH = Math.round((weekly * openDays) / 6);
+  const monatH = monthlyTargetMinutes({ ...draftToEmployee(d), id: employee?.id ?? "preview" }, openDays) / 60;
   const info = splitInfo(monatH, d.employmentType);
 
   return (

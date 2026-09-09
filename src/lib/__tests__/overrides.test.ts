@@ -5,13 +5,20 @@ import { DEFAULT_WORK_HOURS, resolveDay, type OverrideMap } from "../workHours";
 import { SAMPLE_EMPLOYEES } from "../sampleData";
 import { datesOfMonth } from "../demand";
 import { publicHolidays } from "../holidays";
-import { monthlyTargetMinutes } from "../contract";
+import { contractOpenDays, monthlyTargetMinutes } from "../contract";
+import { weekStartOf } from "../weeks";
 
 const openDaysWith = (year: number, month: number, overrides: OverrideMap): number => {
   const hol = publicHolidays(year);
-  return datesOfMonth(year, month).filter(
+  const openDates = datesOfMonth(year, month).filter(
     (d) => !resolveDay(DEFAULT_WORK_HOURS, d, hol, overrides).closed,
-  ).length;
+  );
+  const byWeek = new Map<string, number>();
+  for (const date of openDates) {
+    const week = weekStartOf(date);
+    byWeek.set(week, (byWeek.get(week) ?? 0) + 1);
+  }
+  return contractOpenDays([...byWeek.values()]);
 };
 
 const sollTotal = (openDays: number): number =>
@@ -59,7 +66,7 @@ describe("Ausnahmen je Datum (Overrides)", () => {
     expect(onHalfDay.length).toBeGreaterThan(0);
     for (const s of onHalfDay) {
       expect(s.endMinutes - s.startMinutes).toBeLessThanOrEqual(330);
-      expect(s.paidMinutes).toBeLessThanOrEqual(5 * 60);
+      expect(s.paidMinutes).toBeLessThanOrEqual(5.5 * 60);
       expect(s.startMinutes).toBeGreaterThanOrEqual(10 * 60 + 30);
       expect(s.endMinutes).toBeLessThanOrEqual(16 * 60);
     }

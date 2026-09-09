@@ -89,7 +89,17 @@ export function DocsTab() {
           <li>Tối đa <b>9 giờ công</b> mỗi ngày cho một người.</li>
           <li>
             <b>Giờ nhập theo TUẦN</b> (toàn thời gian = 39 giờ/tuần). Định mức tháng ={" "}
-            giờ/tuần × số ngày mở trong tháng ÷ 6 (quán mở 6 ngày/tuần, nghỉ thứ 2).
+            giờ/tuần × số ngày mở trong tháng ÷ 6; một tuần không bao giờ vượt giờ hợp đồng,
+            kể cả khi có ngày mở thêm.
+          </li>
+          <li>
+            Fulltime thường làm <b>6 ngày</b>, khoảng <b>6–7 giờ/ngày</b>; ngày làm và khung giờ
+            được giữ ổn định giữa các tuần. Nhân viên bán thời gian và Minijob cũng được chia theo
+            quota từng tuần, không dồn 42 giờ vào tuần ký 39 giờ.
+          </li>
+          <li>
+            Mỗi khung mở cửa phải có ít nhất <b>2 người lúc bắt đầu</b>. Sau 21:30 chỉ giữ tối đa
+            <b> 1 người</b> để đóng cửa; các ca còn lại ưu tiên kết thúc lúc <b>21:00 hoặc 21:30</b>.
           </li>
           <li>
             <b>Ca gãy:</b> một người có thể làm <b>cả khung trưa lẫn khung tối</b> trong
@@ -195,7 +205,7 @@ export function DocsTab() {
         <p className="text-slate-600">
           Phải đủ <b>suốt cả khung</b> chứ không chỉ tại một thời điểm, và{" "}
           <b>không được vượt</b> số người tối đa — quán nhỏ, tính cả chủ. Mở cửa và đóng cửa thì
-          một người là đủ.
+          mở cửa cần ít nhất <b>2 người</b>; gần giờ đóng cửa chỉ giữ tối đa <b>1 người</b>.
         </p>
         <p className="text-slate-600">
           Cách rẻ nhất để phủ một ngày <b>không phải</b> hai ca dài bằng nhau. App <b>tự dò</b> tổ
@@ -219,8 +229,8 @@ export function DocsTab() {
         </p>
         <p>
           Nếu một ngày mở <b>ngắn hơn</b> (VD nửa buổi), ca sẽ <b>tự co ngắn lại</b> cho vừa khung —
-          kể cả nhân viên toàn thời gian vẫn đi làm ca ngắn hôm đó, và <b>định mức tháng vẫn được bù
-          đủ</b> ở các ngày khác.
+          kể cả nhân viên toàn thời gian vẫn đi làm ca ngắn hôm đó; quota của tuần đó vẫn được giữ
+          riêng, không tự dồn sang tuần kế tiếp.
         </p>
         <p>
           Giờ nghỉ không trừ vào giờ công mà kéo dài thời gian có mặt: ca 9 giờ công chiếm
@@ -274,9 +284,8 @@ export function DocsTab() {
           sau 6 ngày, chia ca 5h thì đủ cho 11 ngày.
         </p>
         <p className="text-slate-600">
-          Khoảng <b>1/10</b> số ca được rút ngắn còn 4–5 giờ cho lịch đỡ đều đều — chỉ áp dụng khi
-          ngày đó không còn cần ca dài để phủ cao điểm. Ca <b>3 giờ</b> dành riêng cho nhân viên bán
-          thời gian.
+          Lịch tuần ưu tiên ca đều khoảng <b>6–7 giờ/ngày</b> cho fulltime. Ca kết thúc <b>21:00
+          hoặc 21:30</b> được ưu tiên; chỉ một người có thể ở lại sau 21:30 để đóng cửa.
         </p>
       </Section>
 

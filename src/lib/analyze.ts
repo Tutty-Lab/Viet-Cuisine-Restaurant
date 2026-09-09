@@ -187,8 +187,9 @@ export function analyzeSchedule(input: AnalyzeInput): ScheduleAnalysis {
   const hoursByEmployee = new Map<string, number>();
   for (const e of input.employees) hoursByEmployee.set(e.id, 0);
   for (const s of input.shifts) {
-    hoursByEmployee.set(s.employeeId, (hoursByEmployee.get(s.employeeId) ?? 0) + s.paidMinutes / 60);
+    hoursByEmployee.set(s.employeeId, (hoursByEmployee.get(s.employeeId) ?? 0) + s.paidMinutes);
   }
+  for (const [employeeId, minutes] of hoursByEmployee) hoursByEmployee.set(employeeId, minutes / 60);
 
   return {
     days,

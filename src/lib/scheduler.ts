@@ -50,6 +50,7 @@ import {
   type WorkHoursConfig,
 } from "./workHours";
 import { publicHolidays } from "./holidays";
+import { generateWeeklySchedule } from "./weeklyScheduler";
 
 export type GenerateInput = {
   year: number;
@@ -2861,6 +2862,12 @@ function placeFixedShiftWorkers(state: SchedulerState, employees: Employee[]): v
 
 
 export function generateSchedule(input: GenerateInput): Shift[] {
+  const weekly = input.employees.filter((e) => e.weeklyHours != null);
+  if (weekly.length > 0) {
+    const monthly = input.employees.filter((e) => e.weeklyHours == null);
+    const existing = monthly.length ? generateSchedule({ ...input, employees: monthly }) : [];
+    return generateWeeklySchedule({ ...input, employees: weekly }, existing);
+  }
   shiftIdCounter = 0;
   const { year, month, workHours } = input;
   const holidays = input.holidays ?? publicHolidays(year);

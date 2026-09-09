@@ -17,14 +17,21 @@ import { calculatePause } from "../time";
 import { PEAK_WINDOWS_BY_WEEKDAY } from "../scheduler";
 import { publicHolidays } from "../holidays";
 import { datesOfMonth } from "../demand";
-import { monthlyTargetMinutes } from "../contract";
+import { contractOpenDays, monthlyTargetMinutes } from "../contract";
 import { effectiveWeekdayKey, resolveDay } from "../workHours";
+import { weekStartOf } from "../weeks";
 
 const runs = SEED_MONTHS.map((seed) => {
   const holidays = publicHolidays(seed.year);
-  const openDays = datesOfMonth(seed.year, seed.month).filter(
+  const openDates = datesOfMonth(seed.year, seed.month).filter(
     (d) => !resolveDay(DEFAULT_WORK_HOURS, d, holidays, {}).closed,
-  ).length;
+  );
+  const byWeek = new Map<string, number>();
+  for (const date of openDates) {
+    const week = weekStartOf(date);
+    byWeek.set(week, (byWeek.get(week) ?? 0) + 1);
+  }
+  const openDays = contractOpenDays([...byWeek.values()]);
   const shifts = generateSchedule({
     year: seed.year,
     month: seed.month,
@@ -64,14 +71,24 @@ describe.each(runs)("Seed-Monat: $seed.label", ({ seed, openDays, shifts, analys
     }
   });
 
-  it("jede Schicht ist 3..9 h lang mit passender Pause", () => {
+  it("regulaere Schichten sind 3..9 h lang; kleine Randwochen bleiben anteilig", () => {
     for (const s of shifts) {
-      expect(s.paidMinutes).toBeGreaterThanOrEqual(3 * 60);
+      const weekDays = openDatesInWeek(s.date);
+      const employee = seed.employees.find((e) => e.id === s.employeeId)!;
+      const quota = employee.weeklyHours! * 60 * weekDays / 6;
+      expect(s.paidMinutes).toBeGreaterThanOrEqual(Math.min(weekDays < 6 ? 2 * 60 : 3 * 60, quota));
       expect(s.paidMinutes).toBeLessThanOrEqual(9 * 60);
       expect(s.pauseMinutes).toBe(calculatePause(s.paidMinutes));
       expect(s.endMinutes - s.startMinutes - s.pauseMinutes).toBe(s.paidMinutes);
     }
   });
+
+  function openDatesInWeek(date: string): number {
+    const holidays = publicHolidays(seed.year);
+    return datesOfMonth(seed.year, seed.month).filter((candidate) =>
+      weekStartOf(candidate) === weekStartOf(date) && !resolveDay(DEFAULT_WORK_HOURS, candidate, holidays).closed,
+    ).length;
+  }
 
   it("legt jede Schicht KOMPLETT in einen Öffnungsblock", () => {
     // Di–Sa hat der Tag ZWEI Blöcke (10:30–14:30 und 16:30–22:30). Es reicht

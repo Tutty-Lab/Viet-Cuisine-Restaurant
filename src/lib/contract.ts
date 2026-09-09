@@ -17,24 +17,25 @@ import type { Employee } from "../types";
 /** Offene Tage je Woche: Di–So, der Montag ist zu. */
 export const OPEN_DAYS_PER_WEEK = 6;
 
+/** Extra opening days in a calendar week do not increase a weekly contract. */
+export function contractOpenDays(openDaysByWeek: readonly number[]): number {
+  return openDaysByWeek.reduce((sum, openDays) => sum + Math.min(openDays, OPEN_DAYS_PER_WEEK), 0);
+}
+
 /**
  * Monats-Soll dieser Person in Minuten.
  *
  * Ist weeklyHours gesetzt, ist das die Quelle:
  *   Monatsstunden = Wochenstunden × offene Tage des Monats ÷ 6
- * auf ganze Stunden gerundet (der Plan besteht aus Diensten in ganzen Stunden).
+ * auf Minuten gerundet; halbe Stunden bleiben erhalten.
  * Ohne weeklyHours gilt das direkt eingetragene targetMinutes.
  */
 export function monthlyTargetMinutes(emp: Employee, openDaysInMonth: number): number {
-  if (emp.weeklyHours != null && emp.weeklyHours > 0) {
-    const stunden = Math.round((emp.weeklyHours * openDaysInMonth) / OPEN_DAYS_PER_WEEK);
-    return stunden * 60;
+  if (emp.weeklyHours != null) {
+    return Math.max(0, Math.round((emp.weeklyHours * 60 * openDaysInMonth) / OPEN_DAYS_PER_WEEK));
   }
   return emp.targetMinutes;
 }
-
-/** Kürzeste planbare Schicht in Stunden – darunter lohnt sich keine Wochenquote. */
-const MIN_SHIFT_HOURS_FOR_WEEK = 3;
 
 /**
  * Verteilt das MONATS-Soll (in Minuten) auf die einzelnen ISO-Wochen des Monats
@@ -43,59 +44,41 @@ const MIN_SHIFT_HOURS_FOR_WEEK = 3;
  * Scheduler durfte eine Woche mit 42 h und die nächste mit 36 h füllen, solange
  * die Summe stimmte.
  *
- * Gewichtet wird nach den OFFENEN Tagen je Woche: eine volle Woche (6 offene
- * Tage) bekommt genau die Wochenstunden, eine angebrochene Rand-Woche
- * anteilig. Gerechnet wird in GANZEN Stunden (der Plan besteht aus
- * Stunden-Schichten) mit Rest-Ausgleich (largest remainder), damit die Summe
- * der Wochen EXAKT das Monats-Soll ergibt – das Monatsergebnis ändert sich also
- * nicht, nur seine Verteilung.
- *
- * Winzige Rand-Wochen (unter einer Mindestschicht, z. B. ein Minijob mit einem
- * einzigen offenen Tag am Monatsanfang) lassen sich nicht sinnvoll als eigene
- * Woche planen; ihre Stunden wandern in die nächste Woche. So bleibt jede
- * Wochenquote entweder 0 oder mindestens eine Schicht lang und damit planbar.
+ * Eine volle Woche (6 offene Tage) bekommt genau die Wochenstunden, eine
+ * angebrochene Rand-Woche anteilig. Zusätzliche Öffnungstage in einer Woche
+ * erhöhen das Wochen-Soll nicht.
  *
  * Rückgabe: weekStart (ISO-Montag) -> Soll-Minuten der Woche.
  */
 export function weeklyTargetMinutes(
   monthlyMin: number,
   openDaysByWeek: readonly { weekStart: string; openDays: number }[],
+  contractedWeeklyMinutes?: number,
 ): Map<string, number> {
   const result = new Map<string, number>();
   const totalOpen = openDaysByWeek.reduce((a, w) => a + w.openDays, 0);
-  const monthlyHours = Math.round(monthlyMin / 60);
-  if (totalOpen <= 0 || monthlyHours <= 0) {
+  if (totalOpen <= 0 || monthlyMin <= 0) {
     for (const w of openDaysByWeek) result.set(w.weekStart, 0);
     return result;
   }
 
-  // 1. Ganze Stunden je Woche mit Rest-Ausgleich, Summe = monthlyHours.
-  const raw = openDaysByWeek.map((w) => (monthlyHours * w.openDays) / totalOpen);
+  // A weekly contract never borrows minutes from another week, even for a
+  // short month boundary or an extra opening day.
+  if (contractedWeeklyMinutes != null) {
+    for (const week of openDaysByWeek) {
+      result.set(week.weekStart, Math.round(contractedWeeklyMinutes * Math.min(week.openDays, OPEN_DAYS_PER_WEEK) / OPEN_DAYS_PER_WEEK));
+    }
+    return result;
+  }
+
+  const raw = openDaysByWeek.map((w) => (monthlyMin * w.openDays) / totalOpen);
   const floors = raw.map((x) => Math.floor(x));
-  let rest = monthlyHours - floors.reduce((a, b) => a + b, 0);
+  let rest = Math.round(monthlyMin) - floors.reduce((a, b) => a + b, 0);
   const order = raw
     .map((x, i) => ({ i, frac: x - Math.floor(x) }))
     .sort((a, b) => b.frac - a.frac);
-  const hours = [...floors];
-  for (let k = 0; k < order.length && rest > 0; k++, rest--) hours[order[k].i] += 1;
-
-  // 2. Zu kleine Wochen (unter einer Mindestschicht) in die nächste Woche mit
-  //    Stunden schieben, damit jede verbleibende Quote planbar bleibt.
-  for (let i = 0; i < hours.length; i++) {
-    if (hours[i] > 0 && hours[i] < MIN_SHIFT_HOURS_FOR_WEEK) {
-      let j = i + 1;
-      while (j < hours.length && hours[j] === 0) j++;
-      if (j >= hours.length) {
-        j = i - 1;
-        while (j >= 0 && hours[j] === 0) j--;
-      }
-      if (j >= 0 && j < hours.length) {
-        hours[j] += hours[i];
-        hours[i] = 0;
-      }
-    }
-  }
-
-  openDaysByWeek.forEach((w, i) => result.set(w.weekStart, hours[i] * 60));
+  const minutes = [...floors];
+  for (let k = 0; k < order.length && rest > 0; k++, rest--) minutes[order[k].i] += 1;
+  openDaysByWeek.forEach((w, i) => result.set(w.weekStart, minutes[i]));
   return result;
 }

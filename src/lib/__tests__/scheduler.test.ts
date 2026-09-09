@@ -8,13 +8,20 @@ import { calculatePause } from "../time";
 import { datesOfMonth } from "../demand";
 import { resolveDay } from "../workHours";
 import { publicHolidays } from "../holidays";
-import { monthlyTargetMinutes } from "../contract";
+import { contractOpenDays, monthlyTargetMinutes } from "../contract";
+import { weekStartOf } from "../weeks";
 
 const openDaysOf = (year: number, month: number): number => {
   const hol = publicHolidays(year);
-  return datesOfMonth(year, month).filter(
+  const openDates = datesOfMonth(year, month).filter(
     (d) => !resolveDay(DEFAULT_WORK_HOURS, d, hol, {}).closed,
-  ).length;
+  );
+  const byWeek = new Map<string, number>();
+  for (const date of openDates) {
+    const week = weekStartOf(date);
+    byWeek.set(week, (byWeek.get(week) ?? 0) + 1);
+  }
+  return contractOpenDays([...byWeek.values()]);
 };
 
 describe("Scheduler – August 2026 Beispieldaten", () => {
@@ -90,16 +97,13 @@ describe("Scheduler – August 2026 Beispieldaten", () => {
     );
   });
 
-  it("plant mehr Stunden am Samstag als am Montag", () => {
+  it("verteilt 39 Wochenstunden gleichmaessig auf sechs Arbeitstage", () => {
     const byDate = new Map<string, number>();
-    for (const s of shifts) {
+    for (const s of shifts.filter((shift) => shift.employeeId === "ma-1")) {
       byDate.set(s.date, (byDate.get(s.date) ?? 0) + s.paidMinutes);
     }
-    // 2026-08-01 ist Samstag (Gewicht 1,5), 2026-08-04 ein Dienstag (1,0).
-    // Der Montag ist geschlossen, deshalb der Vergleich gegen einen Werktag.
-    const sat = byDate.get("2026-08-01") ?? 0;
-    const tue = byDate.get("2026-08-04") ?? 0;
-    expect(sat).toBeGreaterThan(tue);
+    expect(byDate.get("2026-08-01")).toBe(390);
+    expect(byDate.get("2026-08-04")).toBe(390);
   });
 });
 

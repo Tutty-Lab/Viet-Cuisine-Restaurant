@@ -23,6 +23,8 @@ import { datesOfMonth } from "../lib/demand";
 import { publicHolidays } from "../lib/holidays";
 import { COMPANY_ADDRESS, COMPANY_NAME } from "../lib/company";
 import { createInitialSchedule } from "../lib/sampleData";
+import { contractOpenDays } from "../lib/contract";
+import { weekStartOf } from "../lib/weeks";
 
 /**
  * Steht in diesem Stand überhaupt etwas? Maßstab sind Mitarbeiter und
@@ -166,9 +168,12 @@ export function useSchedule() {
   const openDays = useMemo(() => {
     const holidays = publicHolidays(schedule.year);
     const overrides = overridesToMap(schedule.dateOverrides);
-    return datesOfMonth(schedule.year, schedule.month).filter(
+    const openDates = datesOfMonth(schedule.year, schedule.month).filter(
       (d) => !resolveDay(schedule.workHours, d, holidays, overrides).closed,
-    ).length;
+    );
+    const byWeek = new Map<string, number>();
+    for (const date of openDates) byWeek.set(weekStartOf(date), (byWeek.get(weekStartOf(date)) ?? 0) + 1);
+    return contractOpenDays([...byWeek.values()]);
   }, [schedule.year, schedule.month, schedule.workHours, schedule.dateOverrides]);
 
   const validation: ValidationResult = useMemo(
