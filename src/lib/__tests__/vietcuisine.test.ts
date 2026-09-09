@@ -204,7 +204,7 @@ describe("Wochenplan: feste Wochenstruktur", () => {
     }
   });
 
-  it("keeps five to six people through closing", () => {
+  it("keeps three to four people through closing", () => {
     const shifts = generateSchedule({ year: 2026, month: 9, workHours: DEFAULT_WORK_HOURS, employees: SAMPLE_EMPLOYEES });
     const holidays = publicHolidays(2026);
     for (const date of datesOfMonth(2026, 9)) {

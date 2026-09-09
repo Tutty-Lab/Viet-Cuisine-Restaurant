@@ -11,8 +11,8 @@ export type StaffingWindow = {
 };
 
 export const CLOSING_START = 21 * 60 + 30;
-export const CLOSING_MIN = 5;
-export const CLOSING_MAX = 6;
+export const CLOSING_MIN = 3;
+export const CLOSING_MAX = 4;
 
 export function staffingWindows(blocks: DayBlocks, weekday: WeekdayKey): StaffingWindow[] {
   const windows: StaffingWindow[] = [];
@@ -36,10 +36,15 @@ export function staffingWindows(blocks: DayBlocks, weekday: WeekdayKey): Staffin
     add(block.startMinutes < 16 * 60 ? "Mở cửa" : "Đầu ca tối", block.startMinutes, block.startMinutes + 60, 2);
     if (block.endMinutes < 18 * 60) add("Cuối ca trưa", block.endMinutes - 30, block.endMinutes, 2);
   }
-  // Evening rush uses four people on normal days; busy days multiply that by 1.5.
-  const peakMin = Math.ceil(4 * DAY_WEIGHTS[weekday]);
-  add("Tối", 18 * 60, 20 * 60, peakMin);
-  if (weekday === "sunday") add("Trưa CN", 12 * 60, 14 * 60, peakMin);
+  // Evening rush: a floor AND a ceiling. The ceiling matters most – without it
+  // the optimizer piles everyone into 18–20 h and the morning falls to its
+  // minimum (the old 2-vs-8 split). Busy days (Fr–So) run a bit higher, but the
+  // step is gentle so the evening peak stays ~1.5× the morning, not 4×.
+  const busy = DAY_WEIGHTS[weekday] > 1;
+  const peakMin = busy ? 7 : 5;
+  const peakMax = busy ? 9 : 7;
+  add("Tối", 18 * 60, 20 * 60, peakMin, peakMax);
+  if (weekday === "sunday") add("Trưa CN", 12 * 60, 14 * 60, peakMin, peakMax);
   add("Đóng cửa", CLOSING_START, 22 * 60 + 30, CLOSING_MIN, CLOSING_MAX);
   return windows;
 }
@@ -68,11 +73,17 @@ export function weightedDailyTargets(dates: string[], total: number, weekdayOf: 
   return new Map(dates.map((date) => [date, sum > 0 ? total * DAY_WEIGHTS[weekdayOf(date)] / sum : 0]));
 }
 
-/** Relative workload within a day; only Sunday/holidays have a lunch rush. */
+/**
+ * Relative workload within a day; only Sunday/holidays have a lunch rush.
+ *
+ * Bewusst FLACH gehalten (Verhältnis Abend:Vormittag ≈ 1,5), damit die
+ * Besetzung nicht vormittags auf das Minimum fällt und sich abends staut. Bei
+ * ~10 Kräften ergibt das grob 4 vormittags zu 6 in der Abendspitze statt 2:8.
+ */
 export function workloadAt(minute: number, weekday: WeekdayKey): number {
-  if (minute >= 1080 && minute < 1200) return 2;
-  if (weekday === "sunday" && minute >= 720 && minute < 840) return 1.8;
-  if (minute < 870) return 0.65;
-  if (minute < 990) return 0.5;
-  return 1;
+  if (minute >= 1080 && minute < 1200) return 1.5; // 18:00–20:00 Abendspitze
+  if (weekday === "sunday" && minute >= 720 && minute < 840) return 1.4; // So-Mittag
+  if (minute < 870) return 0.8; // vor 14:30 (Vormittag/Mittag)
+  if (minute < 990) return 0.6; // 14:30–16:30 Flaute
+  return 1; // 16:30–18:00 und 20:00–22:30
 }
