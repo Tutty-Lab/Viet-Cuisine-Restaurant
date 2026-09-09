@@ -165,20 +165,25 @@ export function useSchedule() {
 
   // Offene Tage des Monats – für die Umrechnung von Wochenverträgen (weeklyHours)
   // ins Monats-Soll (siehe contract.ts / validateSchedule).
-  const openDays = useMemo(() => {
+  // Offene Tage des Monats als ISO-Liste – Grundlage für das personenbezogene
+  // Monats-Soll (startDate/Eintritt) in contract.ts / validateSchedule.
+  const openDates = useMemo(() => {
     const holidays = publicHolidays(schedule.year);
     const overrides = overridesToMap(schedule.dateOverrides);
-    const openDates = datesOfMonth(schedule.year, schedule.month).filter(
+    return datesOfMonth(schedule.year, schedule.month).filter(
       (d) => !resolveDay(schedule.workHours, d, holidays, overrides).closed,
     );
+  }, [schedule.year, schedule.month, schedule.workHours, schedule.dateOverrides]);
+
+  const openDays = useMemo(() => {
     const byWeek = new Map<string, number>();
     for (const date of openDates) byWeek.set(weekStartOf(date), (byWeek.get(weekStartOf(date)) ?? 0) + 1);
     return contractOpenDays([...byWeek.values()]);
-  }, [schedule.year, schedule.month, schedule.workHours, schedule.dateOverrides]);
+  }, [openDates]);
 
   const validation: ValidationResult = useMemo(
-    () => validateSchedule(schedule.employees, schedule.shifts, schedule.year, openDays),
-    [schedule.employees, schedule.shifts, schedule.year, openDays],
+    () => validateSchedule(schedule.employees, schedule.shifts, schedule.year, openDates),
+    [schedule.employees, schedule.shifts, schedule.year, openDates],
   );
 
   /**
@@ -478,6 +483,7 @@ export function useSchedule() {
     peakGaps,
     analysis,
     openDays,
+    openDates,
     isLocked,
     markWeekPrinted,
     unlockMonth,

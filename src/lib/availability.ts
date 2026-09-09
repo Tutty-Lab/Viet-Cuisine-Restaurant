@@ -36,11 +36,20 @@ export function onVacation(employee: Employee, isoDate: string): boolean {
 }
 
 /**
+ * Hat die Person an diesem Tag schon angefangen? Ohne startDate: immer ja.
+ * Der ISO-Stringvergleich reicht, weil "yyyy-MM-dd" lexikografisch = zeitlich.
+ */
+export function hasStarted(employee: Employee, isoDate: string): boolean {
+  return employee.startDate == null || isoDate >= employee.startDate;
+}
+
+/**
  * Die eine Frage, die jeder Planungsschritt stellen muss: darf diese Person an
- * diesem Datum arbeiten? (fester freier Wochentag oder Urlaub sprechen dagegen)
+ * diesem Datum arbeiten? (fester freier Wochentag, Urlaub oder ein Eintritt
+ * nach diesem Tag sprechen dagegen)
  */
 export function mayWorkOn(employee: Employee, isoDate: string): boolean {
-  return worksOnWeekday(employee, isoDate) && !onVacation(employee, isoDate);
+  return worksOnWeekday(employee, isoDate) && !onVacation(employee, isoDate) && hasStarted(employee, isoDate);
 }
 
 /** Wie viele Urlaubstage hat die Person in diesem Jahr eingetragen? */

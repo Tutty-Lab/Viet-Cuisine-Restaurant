@@ -8,7 +8,7 @@ import {
   type Employee,
   type Shift,
 } from "../types";
-import { monthlyTargetMinutes, SCHEDULE_SLOT_MINUTES } from "./contract";
+import { monthlyTargetMinutes, monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES } from "./contract";
 import { calculatePause, minutesToShortHours } from "./time";
 import { maxConsecutiveRun } from "./consecutive";
 import { weekStartOf } from "./weeks";
@@ -65,12 +65,21 @@ export function validateSchedule(
   /**
    * Offene Tage des geplanten Monats – nötig, um Wochenverträge (weeklyHours)
    * in ein Monats-Soll umzurechnen. Fehlt der Wert, gilt targetMinutes direkt.
+   *
+   * Als Zahl: monatsweiter Wert, für alle gleich (Altpfad, z. B. Tests).
+   * Als ISO-Datumsliste der offenen Tage: das Soll wird je Person über ihre
+   * vertragswirksamen Tage gerechnet – so zählt ein Eintritt mitten im Monat
+   * (startDate) korrekt und löst keine falsche „zu wenig geplant"-Warnung aus.
    */
-  openDays?: number,
+  openDays?: number | readonly string[],
 ): ValidationResult {
   const errors: ValidationError[] = [];
-  const sollOf = (e: Employee): number =>
-    openDays != null ? monthlyTargetMinutes(e, openDays) : e.targetMinutes;
+  const sollOf = (e: Employee): number => {
+    if (openDays == null) return e.targetMinutes;
+    return typeof openDays === "number"
+      ? monthlyTargetMinutes(e, openDays)
+      : monthlyTargetMinutesFor(e, openDays);
+  };
   const employeeById = new Map(employees.map((e) => [e.id, e] as const));
 
   // Viet Cuisine verwaltet keinen Urlaub – deshalb keine Urlaubsprüfung.

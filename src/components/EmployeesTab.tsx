@@ -3,7 +3,7 @@ import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee, EmploymentType } from "../types";
 import { splitTargetHours } from "../lib/splitTargetHours";
 import { WEEKDAY_SHORT_VI, type WeekdayKey } from "../lib/demand";
-import { monthlyTargetMinutes } from "../lib/contract";
+import { monthlyTargetMinutesFor } from "../lib/contract";
 import { employmentLabelVi, employmentShortVi } from "../lib/employment";
 import { minutesToShortHours, minutesToTime, timeToMinutes } from "../lib/time";
 
@@ -48,6 +48,7 @@ type Draft = {
   fixedEnd: string; // "HH:MM"
   availableWeekdays: WeekdayKey[]; // [] = mọi ngày
   maxDays: string;
+  startDate: string; // "yyyy-MM-dd" hoặc "" = từ đầu tháng
 };
 
 function draftFrom(emp?: Employee): Draft {
@@ -61,6 +62,7 @@ function draftFrom(emp?: Employee): Draft {
     fixedEnd: emp?.fixedShift ? minutesToTime(emp.fixedShift.endMinutes) : FIXED_END_DEFAULT,
     availableWeekdays: emp?.availableWeekdays ?? [],
     maxDays: emp?.maxDaysPerWeek ? String(emp.maxDaysPerWeek) : "",
+    startDate: emp?.startDate ?? "",
   };
 }
 
@@ -95,11 +97,13 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
         ? undefined
         : [...d.availableWeekdays],
     maxDaysPerWeek: d.maxDays === "" || tage < 1 ? undefined : Math.min(7, Math.round(tage)),
+    // Leeres Feld = von Monatsanfang an dabei (kein Eintrittsdatum).
+    startDate: /^\d{4}-\d{2}-\d{2}$/.test(d.startDate) ? d.startDate : undefined,
   };
 }
 
 export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
-  const { schedule, openDays, addEmployee, updateEmployee, removeEmployee } = store;
+  const { schedule, openDays, openDates, addEmployee, updateEmployee, removeEmployee } = store;
   const locked = Boolean(schedule.lockedAt);
 
   // null = zu; "new" = anlegen; sonst = die id, die bearbeitet wird.
@@ -154,7 +158,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                 onClick={() => setOffen(emp.id)}
                 className="w-full text-left rounded-lg border border-slate-200 p-3 flex items-center gap-3 hover:bg-slate-50 active:bg-slate-100 transition-colors"
               >
-                <EmployeeSummaryRow emp={emp} openDays={openDays} />
+                <EmployeeSummaryRow emp={emp} openDates={openDates} />
                 <span className="text-slate-300 text-lg leading-none">›</span>
               </button>
             </li>
@@ -176,7 +180,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
         <EmployeeSheet
           key={bearbeitet?.id ?? "new"}
           employee={bearbeitet}
-          openDays={openDays}
+          openDates={openDates}
           onClose={() => setOffen(null)}
           onSave={(felder) => {
             if (bearbeitet) updateEmployee(bearbeitet.id, felder);
@@ -200,12 +204,12 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
 /** Kompakte Zeile in der Liste: Name, Art, Wochenstunden, Besonderheiten. */
 function EmployeeSummaryRow({
   emp,
-  openDays,
+  openDates,
 }: {
   emp: Employee;
-  openDays: number;
+  openDates: readonly string[];
 }) {
-  const monatMin = monthlyTargetMinutes(emp, openDays);
+  const monatMin = monthlyTargetMinutesFor(emp, openDates);
   const monatH = monatMin / 60;
   const info = splitInfo(monatH, emp.employmentType);
 
@@ -239,13 +243,13 @@ function EmployeeSummaryRow({
  */
 function EmployeeSheet({
   employee,
-  openDays,
+  openDates,
   onClose,
   onSave,
   onDelete,
 }: {
   employee?: Employee;
-  openDays: number;
+  openDates: readonly string[];
   onClose: () => void;
   onSave: (felder: Omit<Employee, "id">) => void;
   onDelete?: () => void;
@@ -256,7 +260,7 @@ function EmployeeSheet({
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) =>
     setD((prev) => ({ ...prev, [k]: v }));
 
-  const monatMin = monthlyTargetMinutes({ ...draftToEmployee(d), id: employee?.id ?? "preview" }, openDays);
+  const monatMin = monthlyTargetMinutesFor({ ...draftToEmployee(d), id: employee?.id ?? "preview" }, openDates);
   const monatH = monatMin / 60;
   const info = splitInfo(monatH, d.employmentType);
 
@@ -409,6 +413,33 @@ function EmployeeSheet({
                 onChange={(e) => set("maxDays", e.target.value)}
               />
               <span className="text-slate-400">bỏ trống = không giới hạn</span>
+            </label>
+          </div>
+
+          {/* Ngày vào làm (Eintritt) – vào giữa tháng thì không bị báo thiếu giờ. */}
+          <div className="border-t border-slate-100 pt-3">
+            <label className="block">
+              <span className="text-xs text-slate-600">Ngày vào làm</span>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="date"
+                  className={`${inputClass}`}
+                  value={d.startDate}
+                  onChange={(e) => set("startDate", e.target.value)}
+                />
+                {d.startDate && (
+                  <button
+                    type="button"
+                    onClick={() => set("startDate", "")}
+                    className="text-xs text-slate-500 hover:text-slate-700 underline"
+                  >
+                    Xoá
+                  </button>
+                )}
+              </div>
+              <span className="mt-1 block text-xs text-slate-400">
+                Vào giữa tháng thì đặt ngày ở đây — định mức chỉ tính từ ngày này, không báo thiếu giờ. Bỏ trống = làm từ đầu tháng.
+              </span>
             </label>
           </div>
         </div>

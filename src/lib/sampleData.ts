@@ -37,7 +37,7 @@ export function makeWeekly(
  *     (Tab Nhân viên). Hier steht sie deshalb noch bei niemandem.
  *   - Mitten im Monat startende/wechselnde Verträge (Bùi ab 7.9., Bảo ab 10.9.,
  *     Nguyệt/Đạt ab Oktober 39 h) sind hier mit ihrem SEPTEMBER-Wert erfasst;
- *     der Teilmonat wird über Urlaubstage vor dem Start abgebildet.
+ *     der Teilmonat wird über das Eintrittsdatum (startDate) abgebildet.
  */
 export const SAMPLE_EMPLOYEES: Employee[] = [
   makeWeekly("ma-1", "Nguyễn Kiều Hồng Nhung", "VOLLZEIT", 39),
@@ -67,24 +67,20 @@ export function createSampleSchedule(): Schedule {
   };
 }
 
-/** Tage 1..bis eines Monats als ISO-Liste – für "erst ab dem X." (Eintritt). */
-function tageBis(year: number, month: number, bis: number): string[] {
-  const out: string[] = [];
-  for (let d = 1; d <= bis; d++) {
-    out.push(`${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
-  }
-  return out;
+/** Ein einzelnes ISO-Datum "yyyy-MM-dd" – für den ersten Arbeitstag (Eintritt). */
+function iso(year: number, month: number, day: number): string {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 /**
  * Startbelegschaft, die die App beim allerersten Öffnen zeigt (September 2026),
  * genau die zwölf Personen aus der Angabe des Betriebs mit ihren Wochenstunden.
  *
- * Mitten im Monat startende Verträge sind über "Urlaub" vor dem ersten
- * Arbeitstag abgebildet – die App hat kein eigenes Eintrittsdatum, und
- * eingetragene Tage werden beim Planen ausgespart:
- *   - Bùi Văn Vũ arbeitet erst ab 7.9. (1.–6.9. gesperrt).
- *   - Nguyễn Hữu Bảo arbeitet erst ab 10.9. (1.–9.9. gesperrt).
+ * Mitten im Monat startende Verträge tragen ihr Eintrittsdatum (startDate):
+ * Tage davor sind gesperrt UND zählen nicht ins Monats-Soll, sonst würden sie
+ * dauerhaft als „zu wenig geplant" gemeldet.
+ *   - Bùi Văn Vũ arbeitet erst ab 7.9.
+ *   - Nguyễn Hữu Bảo arbeitet erst ab 10.9.
  * Nguyễn Thị Nguyệt und Đoàn Thành Đạt stehen mit ihrem September-Wert (10 h);
  * ab Oktober trägt der Betrieb ihre 39 h ein.
  */
@@ -102,8 +98,8 @@ export function createInitialSchedule(): Schedule {
     makeWeekly("ma-8", "Nguyễn Thị Khánh Huyền", "VOLLZEIT", 39),
     makeWeekly("ma-9", "Nguyễn Thị Nguyệt", "MINIJOB", 10),
     makeWeekly("ma-10", "Đoàn Thành Đạt", "MINIJOB", 10),
-    { ...makeWeekly("ma-11", "Bùi Văn Vũ", "VOLLZEIT", 39), vacationDates: tageBis(year, month, 6) },
-    { ...makeWeekly("ma-12", "Nguyễn Hữu Bảo", "TEILZEIT", 35), vacationDates: tageBis(year, month, 9) },
+    { ...makeWeekly("ma-11", "Bùi Văn Vũ", "VOLLZEIT", 39), startDate: iso(year, month, 7) },
+    { ...makeWeekly("ma-12", "Nguyễn Hữu Bảo", "TEILZEIT", 35), startDate: iso(year, month, 10) },
   ];
   return {
     companyName: COMPANY_NAME,

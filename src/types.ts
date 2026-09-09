@@ -106,6 +106,15 @@ export type Employee = {
    */
   vacationDates?: string[];
   /**
+   * Erster Arbeitstag als ISO-Datum "yyyy-MM-dd" (Eintritt/Vertragsbeginn).
+   *
+   * Gesetzt => Tage VOR diesem Datum sind gesperrt (kein Dienst) UND zählen
+   * nicht ins Monats-Soll. So wird ein Eintritt mitten im Monat korrekt
+   * abgebildet: die Person schuldet nur die Stunden ab ihrem Startdatum, statt
+   * als „zu wenig geplant" gemeldet zu werden. Fehlt = von Monatsanfang an dabei.
+   */
+  startDate?: string;
+  /**
    * Wochentage, an denen diese Person überhaupt eingeplant werden darf.
    * Fehlt/leer = jeder Tag ist möglich (keine Einschränkung).
    */

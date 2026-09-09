@@ -16,7 +16,7 @@ import { ShiftCellEditor } from "./ShiftCellEditor";
 import { ScheduleDayView } from "./ScheduleDayView";
 import { weeksOfMonth } from "../lib/weeks";
 import { employmentShortVi } from "../lib/employment";
-import { monthlyTargetMinutes, SCHEDULE_SLOT_MINUTES } from "../lib/contract";
+import { monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES } from "../lib/contract";
 import { StaffingReport } from "./StaffingReport";
 import { PauseLabel } from "./PauseLabel";
 import { CoverageChart } from "./CoverageChart";
@@ -35,7 +35,7 @@ function cellClass(shift: Shift | undefined): string {
 export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   // Drucken (Monat/Woche) und Entsperren liegen im Tab „Bảng chấm công" –
   // dort sitzt alles, was Papier erzeugt.
-  const { schedule, validation, generate, genError, isLocked, openDays } = store;
+  const { schedule, validation, generate, genError, isLocked, openDates } = store;
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
   // Zweiter Klick, um einen gesperrten (gedruckten) Monat neu zu erzeugen –
   // ohne native Rückfrage, die manche In-App-Browser verschlucken.
@@ -343,7 +343,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
             <tbody>
               {schedule.employees.map((emp) => {
                 const sum = summaryByEmp.get(emp.id);
-                const sollMin = monthlyTargetMinutes(emp, openDays);
+                const sollMin = monthlyTargetMinutesFor(emp, openDates);
                 const diff = sum?.diffMinutes ?? -sollMin;
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50/50">

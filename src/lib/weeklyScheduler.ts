@@ -1,7 +1,7 @@
 import type { Employee, Shift } from "../types";
 import { AZUBI_EVENING_START, AZUBI_EVENING_END, OWNER_DAYS_PER_WEEK, OWNER_FREE_WEEKDAY } from "../types";
 import { DAY_WEIGHTS, datesOfMonth, parseIsoDate, weekdayKeyOf, type WeekdayKey } from "./demand";
-import { contractOpenDays, monthlyTargetMinutes, weeklyTargetMinutes } from "./contract";
+import { contractOpenDays, monthlyTargetMinutes, monthlyTargetMinutesFor, weeklyTargetMinutes } from "./contract";
 import { calculatePause } from "./time";
 import { mayWorkOn } from "./availability";
 import { consecutiveRunLengthWith } from "./consecutive";
@@ -314,7 +314,7 @@ export function generateWeeklySchedule(input: WeeklyInput, existing: Shift[] = [
     Number(Boolean(b.fixedShift)) - Number(Boolean(a.fixedShift)) || typeRank(a) - typeRank(b) || a.id.localeCompare(b.id),
   );
   let result = [...existing];
-  const totalTarget = input.employees.reduce((sum, employee) => sum + monthlyTargetMinutes(employee, contractDays), 0) / 60;
+  const totalTarget = input.employees.reduce((sum, employee) => sum + monthlyTargetMinutesFor(employee, openDates), 0) / 60;
   const dailyTargets = new Map<string, number>();
   for (const [, weekDates] of byWeek) {
     const weekShare = totalTarget * weekDates.length / contractDays;
@@ -322,8 +322,16 @@ export function generateWeeklySchedule(input: WeeklyInput, existing: Shift[] = [
       (value) => effectiveWeekdayKey(value, holidays))) dailyTargets.set(date, hours);
   }
   for (const employee of employees) {
-    const target = monthlyTargetMinutes(employee, contractDays);
-    const weekly = weeklyTargetMinutes(target, weekInfo, Math.round((employee.weeklyHours ?? 0) * 60));
+    // Offene Tage je Woche für DIESE Person: vor dem Eintritt liegende Tage
+    // zählen weder zum Wochen-Soll noch zum Monats-Soll (Eintritt mitten im Monat).
+    const empWeekInfo = weekInfo.map((week) => ({
+      weekStart: week.weekStart,
+      openDays: (byWeek.get(week.weekStart) ?? []).filter(
+        (date) => employee.startDate == null || date >= employee.startDate,
+      ).length,
+    }));
+    const target = monthlyTargetMinutes(employee, contractOpenDays(empWeekInfo.map((week) => week.openDays)));
+    const weekly = weeklyTargetMinutes(target, empWeekInfo, Math.round((employee.weeklyHours ?? 0) * 60));
     for (const [weekStart, weekDates] of weeks) {
       const choices = chooseWeek(employee, weekDates, weekly.get(weekStart) ?? 0, result, days, holidays, dailyTargets);
       result.push(...choices.flatMap((choice) => choice.option.shifts));

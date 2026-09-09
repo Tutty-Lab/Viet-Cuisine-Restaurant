@@ -13,6 +13,7 @@
 // ============================================================================
 
 import type { Employee } from "../types";
+import { weekStartOf } from "./weeks";
 
 /** Offene Tage je Woche: Di–So, der Montag ist zu. */
 export const OPEN_DAYS_PER_WEEK = 6;
@@ -21,6 +22,32 @@ export const SCHEDULE_SLOT_MINUTES = 30;
 /** Extra opening days in a calendar week do not increase a weekly contract. */
 export function contractOpenDays(openDaysByWeek: readonly number[]): number {
   return openDaysByWeek.reduce((sum, openDays) => sum + Math.min(openDays, OPEN_DAYS_PER_WEEK), 0);
+}
+
+/**
+ * Vertragswirksame offene Tage DIESER Person: offene Tage des Monats, aber nur
+ * ab ihrem Startdatum (Eintritt mitten im Monat). Pro Woche weiterhin auf sechs
+ * gedeckelt, damit ein zusätzlicher Öffnungstag den Wochenvertrag nicht erhöht.
+ *
+ * Vor dem Eintritt liegende Tage fallen weg – so schuldet ein am 7. Startender
+ * nur die Stunden ab dem 7. und wird nicht als „zu wenig geplant" gemeldet.
+ */
+export function availableContractOpenDays(emp: Employee, openDates: readonly string[]): number {
+  const byWeek = new Map<string, number>();
+  for (const date of openDates) {
+    if (emp.startDate != null && date < emp.startDate) continue;
+    byWeek.set(weekStartOf(date), (byWeek.get(weekStartOf(date)) ?? 0) + 1);
+  }
+  return contractOpenDays([...byWeek.values()]);
+}
+
+/**
+ * Monats-Soll dieser Person in Minuten, berechnet über ihre vertragswirksamen
+ * offenen Tage (respektiert das Startdatum). Für Personen ohne Wochenvertrag
+ * bleibt es beim direkt eingetragenen targetMinutes.
+ */
+export function monthlyTargetMinutesFor(emp: Employee, openDates: readonly string[]): number {
+  return monthlyTargetMinutes(emp, availableContractOpenDays(emp, openDates));
 }
 
 /**
