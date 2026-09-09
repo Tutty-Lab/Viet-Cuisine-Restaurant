@@ -42,7 +42,7 @@ export function staffingWindows(blocks: DayBlocks, weekday: WeekdayKey): Staffin
   // step is gentle so the evening peak stays ~1.5× the morning, not 4×.
   const busy = DAY_WEIGHTS[weekday] > 1;
   const peakMin = busy ? 7 : 5;
-  const peakMax = busy ? 9 : 7;
+  const peakMax = busy ? 10 : 8;
   add("Tối", 18 * 60, 20 * 60, peakMin, peakMax);
   if (weekday === "sunday") add("Trưa CN", 12 * 60, 14 * 60, peakMin, peakMax);
   add("Đóng cửa", CLOSING_START, 22 * 60 + 30, CLOSING_MIN, CLOSING_MAX);
