@@ -16,9 +16,10 @@ import { ShiftCellEditor } from "./ShiftCellEditor";
 import { ScheduleDayView } from "./ScheduleDayView";
 import { weeksOfMonth } from "../lib/weeks";
 import { employmentShortVi } from "../lib/employment";
-import { monthlyTargetMinutes } from "../lib/contract";
+import { monthlyTargetMinutes, SCHEDULE_SLOT_MINUTES } from "../lib/contract";
 import { StaffingReport } from "./StaffingReport";
 import { PauseLabel } from "./PauseLabel";
+import { CoverageChart } from "./CoverageChart";
 
 function isWeekendKey(iso: string): boolean {
   const k = weekdayKeyOf(parseIsoDate(iso));
@@ -40,7 +41,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   // ohne native Rückfrage, die manche In-App-Browser verschlucken.
   const [confirmRegen, setConfirmRegen] = useState(false);
   // Mặc định: điện thoại -> xem theo ngày, màn lớn -> bảng tháng.
-  const [view, setView] = useState<"grid" | "day" | "week">(() =>
+  const [view, setView] = useState<"grid" | "day" | "week" | "coverage">(() =>
     typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches ? "day" : "grid",
   );
   const [weekIndex, setWeekIndex] = useState(0);
@@ -181,6 +182,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 mb-3">
           <button
             onClick={() => setView("day")}
+            aria-pressed={view === "day"}
             className={`px-3 py-1.5 text-sm rounded-md ${
               view === "day" ? "bg-slate-900 text-white" : "text-slate-600"
             }`}
@@ -189,6 +191,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
           </button>
           <button
             onClick={() => setView("week")}
+            aria-pressed={view === "week"}
             className={`px-3 py-1.5 text-sm rounded-md ${
               view === "week" ? "bg-slate-900 text-white" : "text-slate-600"
             }`}
@@ -197,17 +200,27 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
           </button>
           <button
             onClick={() => setView("grid")}
+            aria-pressed={view === "grid"}
             className={`px-3 py-1.5 text-sm rounded-md ${
               view === "grid" ? "bg-slate-900 text-white" : "text-slate-600"
             }`}
           >
             Bảng tháng
           </button>
+          <button
+            onClick={() => setView("coverage")}
+            aria-pressed={view === "coverage"}
+            className={`px-3 py-1.5 text-sm rounded-md ${
+              view === "coverage" ? "bg-slate-900 text-white" : "text-slate-600"
+            }`}
+          >
+            Độ phủ
+          </button>
         </div>
       )}
 
-      {/* Wochenwahl – nur in der Wochenansicht */}
-      {hasEmployees && view === "week" && (
+      {/* Wochenwahl für Dienstplan und Besetzungsdiagramm. */}
+      {hasEmployees && (view === "week" || view === "coverage") && (
         <div className="flex flex-wrap items-center gap-2 mb-3">
           {weeks.map((w, idx) => {
             const printed = (schedule.printedWeeks ?? []).includes(w.weekStart);
@@ -215,6 +228,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
               <button
                 key={w.weekStart}
                 onClick={() => setWeekIndex(idx)}
+                aria-pressed={idx === weekIndex}
                 className={`rounded border px-3 py-1.5 text-sm ${
                   idx === weekIndex
                     ? "border-slate-900 bg-slate-900 text-white"
@@ -227,7 +241,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
               </button>
             );
           })}
-          <span className="text-xs text-slate-500">In tuần ở tab „Bảng chấm công".</span>
+          {view === "week" && <span className="text-xs text-slate-500">In tuần ở tab „Bảng chấm công".</span>}
         </div>
       )}
 
@@ -252,7 +266,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
       )}
 
       {/* Chú thích (bảng tháng và bảng tuần dùng chung lưới) */}
-      {view !== "day" && (
+      {(view === "grid" || view === "week") && (
         <div className="flex flex-wrap gap-3 mb-2 text-xs text-slate-600">
           <span className="inline-flex items-center gap-1">
             <span className="inline-block h-3 w-3 rounded border shift-early" /> Ca sáng
@@ -275,6 +289,8 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         </div>
       ) : view === "day" ? (
         <ScheduleDayView store={store} onEdit={(employeeId, date) => setSelected({ employeeId, date })} />
+      ) : view === "coverage" ? (
+        <CoverageChart schedule={schedule} dates={weeks[Math.min(weekIndex, weeks.length - 1)]?.dates ?? dates} />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white -mx-3 sm:mx-0">
           <table className="border-collapse text-xs">
@@ -338,7 +354,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                       {employmentShortVi(emp.employmentType)}
                     </td>
                     <td className="border-b border-slate-100 px-2 py-1 text-right text-slate-500">
-                      {sollMin / 60}h
+                      {minutesToShortHours(sollMin)}
                     </td>
                     {gridDates.map((d) => {
                       const dienste = shiftMap.get(`${emp.id}#${d}`) ?? [];
@@ -372,17 +388,14 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                       );
                     })}
                     <td className="border-b border-l border-slate-200 px-2 py-1 text-right font-medium">
-                      {((sum?.assignedMinutes ?? 0) / 60).toLocaleString("de-DE", {
-                        maximumFractionDigits: 2,
-                      })}
-                      h
+                      {minutesToShortHours(sum?.assignedMinutes ?? 0)}
                     </td>
                     <td
                       className={`border-b border-l border-slate-200 px-2 py-1 text-right font-medium ${
-                        diff === 0 ? "text-emerald-600" : "text-rose-600"
+                        Math.abs(diff) <= SCHEDULE_SLOT_MINUTES / 2 ? "text-emerald-600" : "text-rose-600"
                       }`}
                     >
-                      {signedHours(diff)}
+                      {Math.abs(diff) <= SCHEDULE_SLOT_MINUTES / 2 ? "≈0,0" : signedHours(diff)}
                     </td>
                   </tr>
                 );

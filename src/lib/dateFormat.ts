@@ -34,12 +34,12 @@ export const MONTH_NAMES_VI = [
   "Tháng 12",
 ];
 
-/** Vorzeichenbehaftete Differenz in Stunden, z.B. -120 -> "-2,00". */
+/** Vorzeichenbehaftete Differenz in Stunden, z.B. -120 -> "-2,0". */
 export function signedHours(minutes: number): string {
   const sign = minutes > 0 ? "+" : "";
   const hours = minutes / 60;
   return `${sign}${hours.toLocaleString("de-DE", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
   })}`;
 }

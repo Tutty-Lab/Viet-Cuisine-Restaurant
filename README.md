@@ -14,9 +14,8 @@ Die Oberfläche ist auf Vietnamesisch.
 - **Sonntag und geöffnete Feiertage:** durchgehend 10:30–22:00.
   Bayerische Feiertage zählen bei Öffnungsfenster und Nachfrage wie Sonntag;
   Datumsausnahmen haben Vorrang.
-- **Jeder Öffnungsblock benötigt mindestens 2 arbeitende Personen am Anfang.**
-  Das gilt auch für die Wiederöffnung um 16:30. Vor der Mittagsschließung
-  werden ebenfalls mindestens 2 Personen benötigt.
+- **Während jedes geöffneten Blocks arbeiten mindestens 2 Personen.** Das gilt
+  auch nach der Wiederöffnung um 16:30 und sonntags durchgehend.
 - **21:30 bis zum tatsächlichen Tagesende: 5–6 arbeitende Personen.**
   Üblicherweise bis 22:30, sonntags und an geöffneten Feiertagen bis 22:00.
 - **Betriebliche Stoßzeiten:** 18:00–20:00 sowie sonntags 12:00–14:00.

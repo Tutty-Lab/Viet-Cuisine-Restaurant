@@ -25,7 +25,7 @@ const sollTotal = (openDays: number): number =>
   SAMPLE_EMPLOYEES.reduce((sum, e) => sum + monthlyTargetMinutes(e, openDays), 0);
 
 describe("Ausnahmen je Datum (Overrides)", () => {
-  it("plant an geschlossenen Tagen keine Schicht – Soll bleibt exakt", () => {
+  it("plant an geschlossenen Tagen keine Schicht – Soll bleibt im 30-Minuten-Raster", () => {
     const overrides: OverrideMap = {
       "2026-08-08": { date: "2026-08-08", closed: true, note: "Betriebsruhe" },
     };
@@ -41,10 +41,10 @@ describe("Ausnahmen je Datum (Overrides)", () => {
     const openDays = openDaysWith(2026, 8, overrides);
     const result = validateSchedule(SAMPLE_EMPLOYEES, shifts, 2026, openDays);
     expect(result.errors.filter((e) => e.severity !== "warning")).toEqual([]);
-    expect(shifts.reduce((a, s) => a + s.paidMinutes, 0)).toBe(sollTotal(openDays));
+    expect(Math.abs(shifts.reduce((a, s) => a + s.paidMinutes, 0) - sollTotal(openDays))).toBeLessThanOrEqual(SAMPLE_EMPLOYEES.length * 15);
   });
 
-  it("halber Tag: Mitarbeiter arbeiten KÜRZERE Schichten (nicht frei), Soll exakt", () => {
+  it("halber Tag: Mitarbeiter arbeiten KÜRZERE Schichten (nicht frei), Soll im 30-Minuten-Raster", () => {
     // 10:30–16:00 = 330 Min Fenster. Mit Pause tragen 330 Minuten eine
     // 5-Stunden-Schicht (300 Min, noch pausenfrei), aber keine längere.
     const overrides: OverrideMap = {
@@ -73,6 +73,6 @@ describe("Ausnahmen je Datum (Overrides)", () => {
     const openDays = openDaysWith(2026, 8, overrides);
     const result = validateSchedule(SAMPLE_EMPLOYEES, shifts, 2026, openDays);
     expect(result.errors.filter((e) => e.severity !== "warning")).toEqual([]);
-    expect(shifts.reduce((a, s) => a + s.paidMinutes, 0)).toBe(sollTotal(openDays));
+    expect(Math.abs(shifts.reduce((a, s) => a + s.paidMinutes, 0) - sollTotal(openDays))).toBeLessThanOrEqual(SAMPLE_EMPLOYEES.length * 15);
   });
 });

@@ -34,18 +34,18 @@ describe("Scheduler – August 2026 Beispieldaten", () => {
 
   const openDays = openDaysOf(2026, 8);
 
-  it("verteilt insgesamt die Summe der (Wochen-)Sollstunden", () => {
+  it("verteilt die Summe der Wochenstunden innerhalb des 30-Minuten-Rasters", () => {
     const soll = SAMPLE_EMPLOYEES.reduce((sum, e) => sum + monthlyTargetMinutes(e, openDays), 0);
     const totalMinutes = shifts.reduce((s, x) => s + x.paidMinutes, 0);
-    expect(totalMinutes).toBe(soll);
+    expect(Math.abs(totalMinutes - soll)).toBeLessThanOrEqual(SAMPLE_EMPLOYEES.length * 15);
   });
 
-  it("trifft jedes einzelne Mitarbeiter-Soll exakt", () => {
+  it("trifft jedes Mitarbeiter-Soll bis auf die Randwochen-Rundung", () => {
     for (const emp of SAMPLE_EMPLOYEES) {
       const assigned = shifts
         .filter((s) => s.employeeId === emp.id)
         .reduce((sum, s) => sum + s.paidMinutes, 0);
-      expect(assigned).toBe(monthlyTargetMinutes(emp, openDays));
+      expect(Math.abs(assigned - monthlyTargetMinutes(emp, openDays))).toBeLessThanOrEqual(15);
     }
   });
 
@@ -82,6 +82,8 @@ describe("Scheduler – August 2026 Beispieldaten", () => {
       expect(s.paidMinutes).toBeLessThanOrEqual(9 * 60);
       expect(s.pauseMinutes).toBe(calculatePause(s.paidMinutes));
       expect(s.endMinutes - s.startMinutes - s.pauseMinutes).toBe(s.paidMinutes);
+      expect(s.startMinutes % 30).toBe(0);
+      expect(s.endMinutes % 30).toBe(0);
     }
   });
 

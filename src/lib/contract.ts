@@ -16,6 +16,7 @@ import type { Employee } from "../types";
 
 /** Offene Tage je Woche: Di–So, der Montag ist zu. */
 export const OPEN_DAYS_PER_WEEK = 6;
+export const SCHEDULE_SLOT_MINUTES = 30;
 
 /** Extra opening days in a calendar week do not increase a weekly contract. */
 export function contractOpenDays(openDaysByWeek: readonly number[]): number {
@@ -65,9 +66,26 @@ export function weeklyTargetMinutes(
   // A weekly contract never borrows minutes from another week, even for a
   // short month boundary or an extra opening day.
   if (contractedWeeklyMinutes != null) {
-    for (const week of openDaysByWeek) {
-      result.set(week.weekStart, Math.round(contractedWeeklyMinutes * Math.min(week.openDays, OPEN_DAYS_PER_WEEK) / OPEN_DAYS_PER_WEEK));
+    const rawSlots = openDaysByWeek.map((week) => ({
+      weekStart: week.weekStart,
+      slots: contractedWeeklyMinutes * Math.min(week.openDays, OPEN_DAYS_PER_WEEK) /
+        OPEN_DAYS_PER_WEEK / SCHEDULE_SLOT_MINUTES,
+    }));
+    const targetSlots = Math.round(rawSlots.reduce((sum, week) => sum + week.slots, 0));
+    const allocated = rawSlots.map((week) => ({
+      ...week,
+      wholeSlots: Math.floor(week.slots),
+      fraction: week.slots - Math.floor(week.slots),
+    }));
+    let remainingSlots = targetSlots - allocated.reduce((sum, week) => sum + week.wholeSlots, 0);
+    for (const week of [...allocated].sort((a, b) => b.fraction - a.fraction || a.weekStart.localeCompare(b.weekStart))) {
+      if (remainingSlots <= 0) break;
+      week.wholeSlots += 1;
+      remainingSlots -= 1;
     }
+    // Randwochen teilen die Rundungsreste des sichtbaren Monats. Volle Wochen
+    // bleiben exakt; die Monatssumme liegt höchstens 15 Minuten vom Soll weg.
+    for (const week of allocated) result.set(week.weekStart, week.wholeSlots * SCHEDULE_SLOT_MINUTES);
     return result;
   }
 

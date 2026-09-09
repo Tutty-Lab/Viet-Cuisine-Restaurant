@@ -76,6 +76,6 @@ export function minutesToShortHours(totalMinutes: number): string {
   const hours = totalMinutes / 60;
   const text = Number.isInteger(hours)
     ? String(hours)
-    : hours.toLocaleString("de-DE", { maximumFractionDigits: 2 });
+    : hours.toLocaleString("de-DE", { maximumFractionDigits: 1 });
   return `${text}h`;
 }

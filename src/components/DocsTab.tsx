@@ -90,7 +90,7 @@ export function DocsTab() {
         <ul className="list-disc space-y-1 pl-5">
           <li><b>Thứ Hai đóng cửa.</b> Nếu trùng ngày lễ, hiện vẫn giữ đóng cửa theo quy tắc Thứ Hai. Cách xử lý này còn chờ xác nhận; ngày có override giờ riêng được mở.</li>
           <li><b>T3–T7:</b> 10:30–14:30 và 16:30–22:30. <b>CN/ngày lễ được mở:</b> 10:30–22:00 liên tục.</li>
-          <li>Mỗi khung mở cửa phải có <b>ít nhất 2 người ngay lúc mở khung</b>. Vì vậy kiểm tra cả 10:30 và 16:30; cuối khung trưa cũng giữ ít nhất 2 người theo mục tiêu vận hành.</li>
+          <li>Trong toàn bộ mỗi khung mở cửa phải có <b>ít nhất 2 người thực làm</b>. Chủ nhật áp dụng liên tục 10:30–22:00; người đang pause không được tính.</li>
           <li>Từ <b>21:30 đến giờ đóng cửa</b> cần <b>5–6 người</b>. Đây là số người làm việc thực tế, không tính người đang nghỉ.</li>
           <li>Cao điểm khách hàng: <b>18:00–20:00</b>; CN thêm <b>12:00–14:00</b>. Số người lập kế hoạch bên dưới là mức vận hành do code suy ra, không phải số khách hàng đã được người dùng chốt.</li>
           <li>Hợp đồng tuần là <b>giới hạn cứng</b>; không mượn giờ giữa ISO-week. Tối đa 6 ngày liên tiếp, tôn trọng ngày được làm và các ngày nghỉ đã nhập.</li>
@@ -100,7 +100,7 @@ export function DocsTab() {
 
       <Section title="Khung giờ và mục tiêu nhân sự">
         <p>
-          Các cửa sổ hiển thị dưới đây lấy trực tiếp từ cấu hình lập lịch. <b>2 người lúc mở</b> và
+          Các cửa sổ hiển thị dưới đây lấy trực tiếp từ cấu hình lập lịch. <b>2 người suốt giờ mở cửa</b> và
           <b>5–6 người lúc đóng</b> là yêu cầu vận hành. Mức tối thiểu cao điểm
           <b>4 ngày thường, 6 ngày bận (T6–CN)</b> và <b>6 CN/ngày lễ ở khung trưa</b> là
           <b>planning target</b> được suy ra từ baseline 4 × trọng số ngày; không phải yêu cầu khách hàng độc lập.
@@ -172,7 +172,7 @@ export function DocsTab() {
       <Section title="Giới hạn cần biết">
         <p>
           Đây là heuristic, không phải solver tối ưu toàn cục. Tổ hợp hợp đồng, 1,5 demand objective,
-          mẫu fulltime, fixed shift, availability, 2 người lúc mở và 5–6 người lúc đóng có thể không tồn tại.
+          mẫu fulltime, fixed shift, availability, 2 người suốt giờ mở cửa và 5–6 người lúc đóng có thể không tồn tại.
           Khi không tồn tại, lịch phải giữ phần đạt được và báo rõ lý do.
         </p>
         <p className="text-slate-600">

@@ -5,7 +5,7 @@ import { splitTargetHours } from "../lib/splitTargetHours";
 import { WEEKDAY_SHORT_VI, type WeekdayKey } from "../lib/demand";
 import { monthlyTargetMinutes } from "../lib/contract";
 import { employmentLabelVi, employmentShortVi } from "../lib/employment";
-import { minutesToTime, timeToMinutes } from "../lib/time";
+import { minutesToShortHours, minutesToTime, timeToMinutes } from "../lib/time";
 
 const inputClass =
   "rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
@@ -205,7 +205,8 @@ function EmployeeSummaryRow({
   emp: Employee;
   openDays: number;
 }) {
-  const monatH = monthlyTargetMinutes(emp, openDays) / 60;
+  const monatMin = monthlyTargetMinutes(emp, openDays);
+  const monatH = monatMin / 60;
   const info = splitInfo(monatH, emp.employmentType);
 
   return (
@@ -218,7 +219,7 @@ function EmployeeSummaryRow({
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500">
         <span>
-          {emp.weeklyHours ?? 0}h/tuần · {monatH > 0 ? `${monatH}h · ` : ""}
+          {emp.weeklyHours ?? 0}h/tuần · {monatH > 0 ? `${minutesToShortHours(monatMin)} · ` : ""}
           <span className={info.ok ? "" : "text-rose-600"}>{info.text}</span>
         </span>
         {emp.fixedShift ? (
@@ -255,7 +256,8 @@ function EmployeeSheet({
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) =>
     setD((prev) => ({ ...prev, [k]: v }));
 
-  const monatH = monthlyTargetMinutes({ ...draftToEmployee(d), id: employee?.id ?? "preview" }, openDays) / 60;
+  const monatMin = monthlyTargetMinutes({ ...draftToEmployee(d), id: employee?.id ?? "preview" }, openDays);
+  const monatH = monatMin / 60;
   const info = splitInfo(monatH, d.employmentType);
 
   return (
@@ -318,7 +320,7 @@ function EmployeeSheet({
             </label>
           </div>
           <div className={`text-xs ${info.ok ? "text-slate-500" : "text-rose-600"}`}>
-            Tháng này ≈ <b>{monatH}h</b> · {info.text}
+            Tháng này ≈ <b>{minutesToShortHours(monatMin)}</b> · {info.text}
           </div>
 
           <div>

@@ -28,6 +28,7 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
   // erst über die offenen Tage abgeleitet (contract.ts), genau wie in der Prüfung.
   const targetMin = schedule.employees.reduce((s, e) => s + monthlyTargetMinutes(e, openDays), 0);
   const plannedMin = schedule.shifts.reduce((s, x) => s + x.paidMinutes, 0);
+  const uncoveredMin = Math.max(0, targetMin - plannedMin);
   const notGenerated = schedule.shifts.length === 0;
 
   // Trước khi tạo lịch: trạng thái trung tính (chưa xếp giờ nào nên chưa thể "lỗi").
@@ -53,13 +54,14 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
 
   return (
     <div>
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
         <Stat label="Số nhân viên" value={String(schedule.employees.length)} />
         <Stat label="Toàn thời gian" value={String(vz)} />
         <Stat label="Bán thời gian" value={String(tz)} />
         <Stat label="Minijob" value={String(mj)} />
-        <Stat label="Tổng giờ định mức" value={`${minutesToDecimalHours(targetMin)} h`} />
-        <Stat label="Tổng giờ đã xếp" value={`${minutesToDecimalHours(plannedMin)} h`} />
+        <Stat label="Tổng giờ định mức" value={`${minutesToDecimalHours(targetMin, 1)} h`} />
+        <Stat label="Tổng giờ đã xếp" value={`${minutesToDecimalHours(plannedMin, 1)} h`} />
+        <Stat label="Giờ chưa thể xếp" value={`${minutesToDecimalHours(uncoveredMin, 1)} h`} accent={uncoveredMin ? "text-amber-600" : "text-emerald-600"} />
         <Stat label="Trạng thái kiểm tra" value={statusValue} accent={statusAccent} />
       </div>
       {notGenerated && schedule.employees.length > 0 && (
@@ -90,8 +92,9 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
             ))}
           </ul>
           <div className="mt-1 text-amber-700">
-            Cách xử lý: giảm định mức cho những người này, mở thêm giờ làm, bớt ngày
-            đóng cửa, hoặc chấp nhận phần thiếu và tự bù ở tháng sau.
+            App đã dùng các ngày hợp lệ trong từng tuần. Phần này không thể tự chuyển sang
+            người khác hoặc tuần khác vì sẽ vượt hợp đồng; cần đổi ngày nghỉ, availability
+            hoặc hợp đồng nếu muốn xếp thêm.
           </div>
         </div>
       )}

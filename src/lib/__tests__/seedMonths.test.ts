@@ -49,13 +49,13 @@ const runs = SEED_MONTHS.map((seed) => {
 });
 
 describe.each(runs)("Seed-Monat: $seed.label", ({ seed, openDays, shifts, analysis }) => {
-  it("trifft die Summe der Sollstunden exakt", () => {
-    expect(analysis.totalPaidHours).toBe(totalTargetHours(seed, openDays));
+  it("trifft die Summe innerhalb der Randwochen-Rundung", () => {
+    expect(Math.abs(analysis.totalPaidHours - totalTargetHours(seed, openDays))).toBeLessThanOrEqual(seed.employees.length * 0.25);
   });
 
-  it("trifft jedes einzelne Mitarbeiter-Soll exakt", () => {
+  it("trifft jedes Mitarbeiter-Soll bis auf 15 Minuten", () => {
     for (const emp of seed.employees) {
-      expect(analysis.hoursByEmployee.get(emp.id)).toBe(monthlyTargetMinutes(emp, openDays) / 60);
+      expect(Math.abs((analysis.hoursByEmployee.get(emp.id) ?? 0) - monthlyTargetMinutes(emp, openDays) / 60)).toBeLessThanOrEqual(0.25);
     }
   });
 
@@ -76,10 +76,13 @@ describe.each(runs)("Seed-Monat: $seed.label", ({ seed, openDays, shifts, analys
       const weekDays = openDatesInWeek(s.date);
       const employee = seed.employees.find((e) => e.id === s.employeeId)!;
       const quota = employee.weeklyHours! * 60 * weekDays / 6;
-      expect(s.paidMinutes).toBeGreaterThanOrEqual(Math.min(weekDays < 6 ? 2 * 60 : 3 * 60, quota));
+      const roundedQuota = Math.round(quota / 30) * 30;
+      expect(s.paidMinutes).toBeGreaterThanOrEqual(Math.min(weekDays < 6 ? 2 * 60 : 3 * 60, roundedQuota));
       expect(s.paidMinutes).toBeLessThanOrEqual(9 * 60);
       expect(s.pauseMinutes).toBe(calculatePause(s.paidMinutes));
       expect(s.endMinutes - s.startMinutes - s.pauseMinutes).toBe(s.paidMinutes);
+      expect(s.startMinutes % 30).toBe(0);
+      expect(s.endMinutes % 30).toBe(0);
     }
   });
 

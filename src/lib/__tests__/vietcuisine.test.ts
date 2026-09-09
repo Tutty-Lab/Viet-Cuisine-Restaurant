@@ -11,7 +11,7 @@ import { validateSchedule } from "../validation";
 import { DEFAULT_WORK_HOURS, resolveDay } from "../workHours";
 import { publicHolidays } from "../holidays";
 import { datesOfMonth } from "../demand";
-import { contractOpenDays, monthlyTargetMinutes, OPEN_DAYS_PER_WEEK } from "../contract";
+import { contractOpenDays, monthlyTargetMinutes, OPEN_DAYS_PER_WEEK, weeklyTargetMinutes } from "../contract";
 import type { Employee, Shift } from "../../types";
 import { weekStartOf } from "../weeks";
 import { SAMPLE_EMPLOYEES } from "../sampleData";
@@ -52,6 +52,23 @@ describe("Wochenvertrag -> Monats-Soll", () => {
     expect(monthlyTargetMinutes(emp, 26)).toBe(100 * 60);
   });
 
+  it("verteilt Rundungsreste über Randwochen ohne krumme Uhrzeiten", () => {
+    const target = 40 * 60 * 25 / 6;
+    const weekly = weeklyTargetMinutes(target, [
+      { weekStart: "2026-07-27", openDays: 2 },
+      { weekStart: "2026-08-03", openDays: 6 },
+      { weekStart: "2026-08-10", openDays: 5 },
+      { weekStart: "2026-08-17", openDays: 6 },
+      { weekStart: "2026-08-24", openDays: 6 },
+    ], 40 * 60);
+    const values = [...weekly.values()];
+    expect(values.every((minutes) => minutes % 30 === 0)).toBe(true);
+    expect(values[1]).toBe(40 * 60);
+    expect(values[3]).toBe(40 * 60);
+    expect(values[4]).toBe(40 * 60);
+    expect(Math.abs(values.reduce((sum, minutes) => sum + minutes, 0) - target)).toBeLessThanOrEqual(15);
+  });
+
   it("requires an explicit pause interval for weekly shifts", () => {
     const employee = wk("pause", "VOLLZEIT", 39);
     const shift: Shift = {
@@ -79,12 +96,12 @@ describe("Wochenvertrag -> Monats-Soll", () => {
   ];
 
   for (const month of [9, 10, 11]) {
-    it(`tháng ${month}: mỗi người đủ đúng định mức quy đổi từ tuần`, () => {
+    it(`tháng ${month}: mỗi người sát định mức trong lưới 30 phút`, () => {
       const openDays = openDaysOf(2026, month);
       const shifts = generateSchedule({ year: 2026, month, workHours: DEFAULT_WORK_HOURS, employees: team() });
       for (const e of team()) {
         const got = shifts.filter((s) => s.employeeId === e.id).reduce((a, s) => a + s.paidMinutes, 0);
-        expect(got).toBe(monthlyTargetMinutes(e, openDays));
+        expect(Math.abs(got - monthlyTargetMinutes(e, openDays))).toBeLessThanOrEqual(15);
       }
       const v = validateSchedule(team(), shifts, 2026, openDays);
       expect(v.errors.filter((x) => x.severity !== "warning")).toEqual([]);
@@ -171,6 +188,18 @@ describe("Wochenplan: feste Wochenstruktur", () => {
       for (const block of day.blocks) {
         const atOpening = shifts.filter((shift) => shift.date === date && shift.startMinutes <= block.startMinutes && shift.endMinutes > block.startMinutes);
         expect(atOpening.length, `${date} ${block.startMinutes}`).toBeGreaterThanOrEqual(2);
+      }
+    }
+  });
+
+  it("keeps at least two people throughout every open block", () => {
+    const shifts = generateSchedule({ year: 2026, month: 9, workHours: DEFAULT_WORK_HOURS, employees: SAMPLE_EMPLOYEES });
+    const holidays = publicHolidays(2026);
+    for (const date of datesOfMonth(2026, 9)) {
+      const day = resolveDay(DEFAULT_WORK_HOURS, date, holidays, {});
+      for (const block of day.blocks) for (let minute = block.startMinutes; minute < block.endMinutes; minute++) {
+        const staff = new Set(shifts.filter((shift) => shift.date === date && workingAt(shift, minute)).map((shift) => shift.employeeId)).size;
+        expect(staff, `${date} ${minute}`).toBeGreaterThanOrEqual(2);
       }
     }
   });

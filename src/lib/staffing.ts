@@ -24,6 +24,15 @@ export function staffingWindows(blocks: DayBlocks, weekday: WeekdayKey): Staffin
     }
   };
   for (const block of blocks) {
+    windows.push({
+      label: "Trong giờ mở cửa",
+      startMinutes: block.startMinutes,
+      endMinutes: block.endMinutes,
+      minStaff: 2,
+      maxStaff: Infinity,
+    });
+  }
+  for (const block of blocks) {
     add(block.startMinutes < 16 * 60 ? "Mở cửa" : "Đầu ca tối", block.startMinutes, block.startMinutes + 60, 2);
     if (block.endMinutes < 18 * 60) add("Cuối ca trưa", block.endMinutes - 30, block.endMinutes, 2);
   }

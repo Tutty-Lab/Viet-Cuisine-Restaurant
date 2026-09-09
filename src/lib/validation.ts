@@ -8,8 +8,8 @@ import {
   type Employee,
   type Shift,
 } from "../types";
-import { monthlyTargetMinutes } from "./contract";
-import { calculatePause } from "./time";
+import { monthlyTargetMinutes, SCHEDULE_SLOT_MINUTES } from "./contract";
+import { calculatePause, minutesToShortHours } from "./time";
 import { maxConsecutiveRun } from "./consecutive";
 import { weekStartOf } from "./weeks";
 import { validPause } from "./staffing";
@@ -218,7 +218,10 @@ export function validateSchedule(
       }
     }
 
-    if (assignedMinutes !== soll) {
+    const targetDifference = assignedMinutes - soll;
+    // Eine Randwoche darf wegen des sichtbaren 30-Minuten-Rasters höchstens
+    // eine halbe Rastereinheit vom rechnerischen Monatswert abweichen.
+    if (Math.abs(targetDifference) > SCHEDULE_SLOT_MINUTES / 2) {
       // Zu WENIG verteilt heißt: der Monat gibt nicht mehr her (oder eine feste
       // Schicht trifft das Soll nicht ganz genau) – Warnung. Zu VIEL wäre ein
       // echter Fehler im Plan.
@@ -227,8 +230,8 @@ export function validateSchedule(
         employeeId: emp.id,
         severity: zuViel ? "warning" : "error",
         message: zuViel
-          ? `${emp.name}: mới xếp được ${assignedMinutes / 60}h / ${soll / 60}h — tháng này không đủ ngày cho định mức đó.`
-          : `${emp.name}: xếp quá giờ định mức: ${assignedMinutes / 60} h thay vì ${soll / 60} h.`,
+          ? `${emp.name}: mới xếp được ${minutesToShortHours(assignedMinutes)} / ${minutesToShortHours(soll)} — tháng này không đủ ngày cho định mức đó.`
+          : `${emp.name}: xếp quá giờ định mức: ${minutesToShortHours(assignedMinutes)} thay vì ${minutesToShortHours(soll)}.`,
       });
     }
     if (maxRun > MAX_CONSECUTIVE_DAYS) {
