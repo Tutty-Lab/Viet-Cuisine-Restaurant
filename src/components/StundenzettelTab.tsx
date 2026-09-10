@@ -34,9 +34,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     [schedule.year, schedule.month],
   );
 
-  // Druck-/PDF-Bühne.
-  const [printList, setPrintList] = useState<Employee[] | null>(null);
-  const [scheduleRange, setScheduleRange] = useState<ScheduleRange | null>(null);
+  // PDF-Bühne.
   const [pdfList, setPdfList] = useState<Employee[] | null>(null);
   const [pdfSchedule, setPdfSchedule] = useState<ScheduleRange | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -63,34 +61,6 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     who === "all" ? schedule.employees[0] ?? null : chosenEmployees[0] ?? null;
   const employeeIds = who === "all" ? undefined : [who];
   const whoTag = who === "all" ? "tat_ca" : safeFileName(previewEmployee?.name ?? who);
-
-  // Vùng in phải được render TRƯỚC khi gọi print, và print phải nằm trong cùng
-  // thao tác chạm (mobile chặn print ngoài gesture). flushSync render đồng bộ.
-  function doPrint(list: Employee[], sz?: { dates?: string[]; label?: string }) {
-    if (list.length === 0) return;
-    flushSync(() => {
-      setScheduleRange(null);
-      setSzDates(sz?.dates);
-      setSzLabel(sz?.label);
-      setPrintList(list);
-    });
-    window.print();
-  }
-
-  /**
-   * Dienstplan drucken. Der Wochen-Ausdruck sperrt den Monat: das Blatt hängt
-   * danach im Laden und muss mit dem Stand im System übereinstimmen. Der
-   * Monatsausdruck ist nur eine Übersicht und sperrt nichts.
-   */
-  function printSchedule(range: ScheduleRange) {
-    if (range.dates.length === 0) return;
-    flushSync(() => {
-      setPrintList(null);
-      setScheduleRange(range);
-    });
-    window.print();
-    if (range.weekStart) markWeekPrinted(range.weekStart);
-  }
 
   /**
    * PDF: các trang phải được render thật (không display:none) thì html2canvas
@@ -186,20 +156,6 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     return { dates: w.dates, label: `Woche ${w.label}${schedule.year}` };
   }
 
-  function onPrint() {
-    if (what === "stundenzettel") {
-      doPrint(chosenEmployees);
-      return;
-    }
-    if (what.startsWith("sz-")) {
-      const sz = szWeekFor(what.slice(3));
-      if (sz) doPrint(chosenEmployees, sz);
-      return;
-    }
-    const range = scheduleRangeFor(what);
-    if (range) printSchedule(range);
-  }
-
   function onPdf() {
     if (what === "stundenzettel") {
       void doPdf(chosenEmployees, `Stundenzettel_${whoTag}_${monthTag}.pdf`);
@@ -240,7 +196,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
       <div className="no-print">
         {/* ---- In & Xuất ---- */}
         <div className="rounded-lg border border-slate-200 bg-white p-3 mb-4">
-          <div className="text-sm font-medium text-slate-700 mb-2">In &amp; Xuất file</div>
+          <div className="text-sm font-medium text-slate-700 mb-2">Xuất file PDF</div>
 
           <div className="flex flex-wrap items-end gap-3">
             {/* WER */}
@@ -280,7 +236,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
                   return (
                     <option key={w.weekStart} value={w.weekStart}>
                       Lịch làm việc — tuần {w.label}
-                      {printed ? " ✓ (đã in)" : ""}
+                      {printed ? " ✓ (đã xuất)" : ""}
                     </option>
                   );
                 })}
@@ -289,13 +245,6 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
 
             {/* Hành động */}
             <div className="flex items-center gap-2">
-              <button
-                disabled={pdfBusy || !hasSchedule}
-                onClick={onPrint}
-                className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40"
-              >
-                🖨 In
-              </button>
               <button
                 disabled={pdfBusy || !hasSchedule}
                 onClick={onPdf}
@@ -320,8 +269,8 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
           <p className="mt-2 text-xs text-slate-500">
             <b>Bảng chấm công (Stundenzettel)</b> theo mẫu tiếng Đức để nộp — một tờ mỗi người, chọn
             cả tháng hoặc từng tuần. <b>Lịch làm việc</b> là lịch treo ở quán (cả tháng hoặc từng
-            tuần, cho cả quán hoặc một người). <b>In lịch một tuần sẽ khóa lịch tháng</b> để bản
-            treo luôn khớp với hệ thống. Xuất PDF tải thẳng file về máy dưới dạng tệp PDF (tối ưu
+            tuần, cho cả quán hoặc một người). <b>Xuất lịch một tuần sẽ khóa lịch tháng</b> để bản
+            đã xuất luôn khớp với hệ thống. Xuất PDF tải thẳng file về máy dưới dạng tệp PDF (tối ưu
             cho iPhone, iPad, Safari, Chrome).
           </p>
 
@@ -391,29 +340,6 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
               <StundenzettelPage schedule={schedule} employee={previewEmployee} />
             </div>
           </>
-        )}
-      </div>
-
-      {/* Vùng in ẩn: hoặc các tờ chấm công, hoặc lịch làm việc */}
-      <div className="print-area">
-        {scheduleRange ? (
-          <SchedulePrintPage
-            schedule={schedule}
-            dates={scheduleRange.dates}
-            title={scheduleRange.title}
-            layout={scheduleRange.layout}
-            employeeIds={scheduleRange.employeeIds}
-          />
-        ) : (
-          (printList ?? []).map((emp) => (
-            <StundenzettelPage
-              key={emp.id}
-              schedule={schedule}
-              employee={emp}
-              dates={szDates}
-              periodLabel={szLabel}
-            />
-          ))
         )}
       </div>
 
