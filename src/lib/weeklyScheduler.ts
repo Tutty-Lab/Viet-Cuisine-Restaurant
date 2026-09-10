@@ -40,23 +40,39 @@ function dayOf(date: string): WeekdayKey {
 
 function fixedPaid(window: DayWindow): number {
   const presence = window.endMinutes - window.startMinutes;
-  for (const pause of [0, 30, 45]) {
+  for (const pause of [0, 30, 60]) {
     const paid = presence - pause;
     if (paid > 0 && calculatePause(paid) === pause) return paid;
   }
   return 0;
 }
 
-function makeShift(employeeId: string, date: string, startMinutes: number, paidMinutes: number, shiftType: "EARLY" | "LATE"): Shift {
+function makeShift(
+  employeeId: string,
+  date: string,
+  startMinutes: number,
+  paidMinutes: number,
+  shiftType: "EARLY" | "LATE",
+  effectiveWeekday?: WeekdayKey,
+): Shift {
   const pauseMinutes = calculatePause(paidMinutes);
   const endMinutes = startMinutes + paidMinutes + pauseMinutes;
-  const weekday = dayOf(date);
-  const pauseCandidates = Array.from({ length: Math.max(0, Math.floor((endMinutes - pauseMinutes - 60 - (startMinutes + 60)) / SLOT) + 1) },
-    (_, index) => startMinutes + 60 + index * SLOT).filter((start) =>
-      start - startMinutes <= 360 && endMinutes - start - pauseMinutes <= 360);
+  const weekday = effectiveWeekday ?? dayOf(date);
+  const pauseCandidates = Array.from(
+    { length: Math.max(0, Math.floor((endMinutes - pauseMinutes - 60 - (startMinutes + 60)) / SLOT) + 1) },
+    (_, index) => startMinutes + 60 + index * SLOT,
+  ).filter(
+    (start) => start - startMinutes <= 360 && endMinutes - start - pauseMinutes <= 360,
+  );
   const pauseStartMinutes = pauseMinutes > 0 ? pauseCandidates.sort((a, b) => {
     const score = (start: number) => Array.from({ length: pauseMinutes / SLOT }, (_, index) => start + index * SLOT)
-      .reduce((sum, minute) => sum + workloadAt(minute, weekday) + (minute >= 21 * 60 + 30 ? 100 : 0), 0);
+      .reduce((sum, minute) => {
+        let w = workloadAt(minute, weekday);
+        if (minute >= 21 * 60 + 30) w += 100; // tránh đóng cửa
+        if (minute >= 18 * 60 && minute < 20 * 60) w += 50; // tránh giờ cao điểm tối
+        if (weekday === "sunday" && minute >= 12 * 60 && minute < 14 * 60) w += 50; // tránh giờ cao điểm trưa CN
+        return sum + w;
+      }, 0);
     return score(a) - score(b) || ((a / SLOT + hash(employeeId)) % 7) - ((b / SLOT + hash(employeeId)) % 7);
   })[0] : undefined;
   return {
@@ -76,11 +92,18 @@ function employeeBlocks(employee: Employee, date: string, blocks: DayBlocks): Da
   })).filter((block) => block.endMinutes > block.startMinutes);
 }
 
-function optionsFor(employee: Employee, date: string, paid: number, blocks: DayBlocks, partialWeek = false): Option[] {
+function optionsFor(
+  employee: Employee,
+  date: string,
+  paid: number,
+  blocks: DayBlocks,
+  partialWeek = false,
+  effectiveWeekday?: WeekdayKey,
+): Option[] {
   if (paid <= 0 || paid > (employee.isOwner ? 600 : 540)) return [];
   if (employee.fixedShift) {
     return fixedPaid(employee.fixedShift) === paid
-      ? [{ shifts: [makeShift(employee.id, date, employee.fixedShift.startMinutes, paid, "EARLY")], styleCost: 0 }]
+      ? [{ shifts: [makeShift(employee.id, date, employee.fixedShift.startMinutes, paid, "EARLY", effectiveWeekday)], styleCost: 0 }]
       : [];
   }
   const allowed = employeeBlocks(employee, date, blocks);
@@ -101,10 +124,20 @@ function optionsFor(employee: Employee, date: string, paid: number, blocks: DayB
   };
   const placements = (block: DayWindow, duration: number, early: boolean): Shift[] => {
     const presence = duration + calculatePause(duration);
-    const starts = [block.startMinutes, ...[21 * 60, TAPER_END, block.endMinutes].map((end) => end - presence)];
+    const isLongContinuousBlock = block.endMinutes - block.startMinutes >= 10 * 60;
+    const starts = isLongContinuousBlock
+      ? [
+          block.startMinutes,
+          ...Array.from(
+            { length: Math.max(0, Math.floor((block.endMinutes - presence - block.startMinutes) / SLOT) + 1) },
+            (_, idx) => block.startMinutes + idx * SLOT,
+          ),
+          block.endMinutes - presence,
+        ]
+      : [block.startMinutes, ...[21 * 60, TAPER_END, block.endMinutes].map((end) => end - presence)];
     return [...new Set(starts)]
       .filter((start) => start >= block.startMinutes && start + presence <= block.endMinutes)
-      .map((start) => makeShift(employee.id, date, start, duration, early ? "EARLY" : "LATE"));
+      .map((start) => makeShift(employee.id, date, start, duration, early ? "EARLY" : "LATE", effectiveWeekday));
   };
 
   allowed.forEach((block, index) => {
@@ -116,24 +149,15 @@ function optionsFor(employee: Employee, date: string, paid: number, blocks: DayB
     const first = allowed[0];
     const last = allowed[allowed.length - 1];
     for (let morning = MIN_SHIFT; morning <= Math.min(paid - minimumEvening, first.endMinutes - first.startMinutes); morning += SLOT) {
-      const early = makeShift(employee.id, date, first.startMinutes, morning, "EARLY");
+      const early = makeShift(employee.id, date, first.startMinutes, morning, "EARLY", effectiveWeekday);
       if (early.endMinutes > first.endMinutes) continue;
       for (const late of placements(last, paid - morning, false)) {
         if (early.endMinutes <= late.startMinutes) add([early, late]);
       }
     }
   }
-  // Continuous opening does not require every employee to work one continuous shift.
-  // A split Sunday shift can cover lunch and closing when the team is too small for two disjoint groups.
-  if (paid >= 2 * MIN_SHIFT && allowed.length === 1 && allowed[0].endMinutes - allowed[0].startMinutes >= 10 * 60) {
-    const block = allowed[0];
-    for (let morning = MIN_SHIFT; morning <= Math.min(240, paid - MIN_SHIFT); morning += SLOT) {
-      const early = makeShift(employee.id, date, block.startMinutes, morning, "EARLY");
-      for (const late of placements(block, paid - morning, false)) {
-        if (late.startMinutes - early.endMinutes >= 30) add([early, late]);
-      }
-    }
-  }
+  // Ngày Chủ nhật & ngày mở liên tục (allowed.length === 1): nhân viên làm ca liên tục,
+  // không có nghỉ trưa tách ca. Giờ nghỉ giải lao (pause) được xếp vào ca theo đúng luật.
   return options;
 }
 
@@ -185,32 +209,35 @@ function chooseWeek(
   if (target <= 0 || limit <= 0) return [];
   const fixed = employee.fixedShift ? fixedPaid(employee.fixedShift) : 0;
   if (employee.fixedShift && fixed === 0) return [];
-  // So VIELE Arbeitstage wie möglich, damit die Stunden dünn und gleich auf die
-  // Woche verteilt werden (39 h → 6 Tage × 6,5 h, 33 h → 6 Tage × 5,5 h). Nur wenn
-  // der Vertrag zu klein ist, um jeden Tag die Mindestschicht (3 h) zu füllen,
-  // werden es weniger Tage (Minijob 10 h → ~3 Tage).
   const preferredCount = fixed
     ? Math.min(limit, Math.floor(target / fixed))
     : Math.min(limit, Math.max(1, Math.floor(target / MIN_SHIFT)));
-  const durations = new Set<number>();
-  if (fixed) durations.add(fixed);
-  else if (target < MIN_SHIFT) durations.add(target);
+
+  const cap = employee.isOwner ? 600 : 540;
+  const hasLongDay = eligible.some((date) => {
+    const d = days.get(date);
+    return d && !d.closed && d.blocks.some((b) => b.endMinutes - b.startMinutes >= 10 * 60);
+  });
+  const base = Math.round(target / Math.max(1, preferredCount) / SLOT) * SLOT;
+  let lo = Math.max(MIN_SHIFT, hasLongDay ? base - 2 * SLOT : base - SLOT);
+  let hi = Math.min(cap, base + SLOT);
+  while (hi * preferredCount < target && hi < cap) hi += SLOT;
+  while (lo * preferredCount > target && lo > MIN_SHIFT) lo -= SLOT;
+
+  const normalDurations = new Set<number>();
+  if (fixed) normalDurations.add(fixed);
+  else if (target < MIN_SHIFT) normalDurations.add(target);
   else {
-    // Gleiche Stunden je Tag: die Tageslänge bleibt in einem ENGEN Band (±30 min)
-    // um das Ideal (target / Arbeitstage). 39 h / 6 Tage → 6,5 h → nur 6/6,5/7 h,
-    // 33 h → 5,5 h → 5/5,5/6 h. Das erzwingt zugleich, dass alle Arbeitstage
-    // genutzt werden (5 Tage × 7 h = 35 h < 39 h, also nicht auf weniger Tage
-    // stauchbar) statt einen Tag frei zu nehmen und die Reste zu 9-h-Tagen zu ballen.
-    const cap = employee.isOwner ? 600 : 540;
-    const base = Math.round(target / Math.max(1, preferredCount) / SLOT) * SLOT;
-    let lo = Math.max(MIN_SHIFT, base - SLOT);
-    let hi = Math.min(cap, base + SLOT);
-    // Nur so weit aufweiten, wie es das Wochen-Soll über die Arbeitstage
-    // überhaupt braucht (angebrochene Wochen, Eintritt mitten im Monat, Overrides).
-    while (hi * preferredCount < target && hi < cap) hi += SLOT;
-    while (lo * preferredCount > target && lo > MIN_SHIFT) lo -= SLOT;
     for (let duration = lo; duration <= hi; duration += SLOT) {
-      if (duration <= target) durations.add(duration);
+      if (duration <= target) normalDurations.add(duration);
+    }
+  }
+
+  const longDayDurations = new Set(normalDurations);
+  if (!fixed && hasLongDay && employee.employmentType !== "MINIJOB" && target >= 20 * 60) {
+    const longHi = Math.min(cap, 540);
+    for (let duration = Math.min(lo, 360); duration <= longHi; duration += SLOT) {
+      if (duration <= target) longDayDurations.add(duration);
     }
   }
 
@@ -236,17 +263,17 @@ function chooseWeek(
     const day = days.get(date)!;
     const occupied = existing.filter((shift) => shift.date === date);
     const weekday = effectiveWeekdayKey(date, holidays);
-    // Gleiche Stunden an JEDEM Arbeitstag: 39 h / 6 Tage ≈ 6,5 h/Tag (33 h ≈
-    // 5,5 h/Tag), egal ob Stoßtag. Der Andrang an Fr–So wird über die LAGE der
-    // Schicht (mehr Leute am Abend, Personal-Fenster) gedeckt, nicht über
-    // längere Tage.
-    const ideal = target / Math.max(1, preferredCount);
+    const isLongDay = day.blocks.some((b) => b.endMinutes - b.startMinutes >= 10 * 60);
+    const dayDurations = isLongDay ? longDayDurations : normalDurations;
+    const ideal = isLongDay
+      ? Math.min(cap, Math.round((target / Math.max(1, preferredCount) * 1.2) / SLOT) * SLOT)
+      : target / Math.max(1, preferredCount);
     const before = dayCost(occupied, day.blocks, weekday, dailyTargets.get(date));
     const candidates: { choice: Choice; cost: number }[] = [];
-    for (const paid of durations) {
+    for (const paid of dayDurations) {
       let best: Option | undefined;
       let score = Infinity;
-      for (const option of optionsFor(employee, date, paid, day.blocks, dates.length < 6)) {
+      for (const option of optionsFor(employee, date, paid, day.blocks, dates.length < 6, weekday)) {
         const cost = dayCost([...occupied, ...option.shifts], day.blocks, weekday, dailyTargets.get(date)) - before + option.styleCost;
         if (cost < score) { best = option; score = cost; }
       }
@@ -301,7 +328,7 @@ function improveCoverage(result: Shift[], employees: Employee[], days: Map<strin
         const others = onDay.filter((shift) => shift.employeeId !== employee.id);
         let bestCost = dayCost(onDay, day.blocks, weekday, dailyTargets.get(date));
         let best: Shift[] | undefined;
-        for (const option of optionsFor(employee, date, paid, day.blocks, partialWeek)) {
+        for (const option of optionsFor(employee, date, paid, day.blocks, partialWeek, weekday)) {
           const cost = dayCost([...others, ...option.shifts], day.blocks, weekday, dailyTargets.get(date));
           if (cost < bestCost) { best = option.shifts; bestCost = cost; }
         }
