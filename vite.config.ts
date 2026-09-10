@@ -10,6 +10,11 @@ export default defineConfig({
   // Achtung: NEXT_PUBLIC_*/VITE_* landen im öffentlichen Bundle. Niemals
   // Service-Role-Key oder Postgres-Passwort so benennen.
   envPrefix: ["VITE_", "NEXT_PUBLIC_"],
+  // Build-Zeitstempel, sichtbar in der App – so lässt sich sofort erkennen, ob
+  // wirklich die NEUE Version läuft oder noch die alte aus dem PWA-Cache.
+  define: {
+    __BUILD__: JSON.stringify(new Date().toISOString().replace("T", " ").slice(0, 16)),
+  },
   plugins: [
     react(),
     VitePWA({

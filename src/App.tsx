@@ -36,7 +36,10 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
       <header className="no-print bg-slate-900 text-white shadow sticky top-0 z-30">
         <div className="mx-auto max-w-[1500px] px-3 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h1 className="text-base sm:text-lg font-semibold">Lịch làm việc &amp; Bảng chấm công</h1>
+            <h1 className="text-base sm:text-lg font-semibold">
+              Lịch làm việc &amp; Bảng chấm công
+              <span className="ml-2 align-middle text-[10px] font-normal text-slate-400">bản {__BUILD__}</span>
+            </h1>
             <p className="text-xs text-slate-300">
               {store.schedule.companyName || "Chưa có tên cửa hàng"} · {monthLabel(store.schedule.year, store.schedule.month)}
               {store.remoteStatus !== "off" && (
