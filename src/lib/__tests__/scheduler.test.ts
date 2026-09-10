@@ -99,17 +99,16 @@ describe("Scheduler – August 2026 Beispieldaten", () => {
     );
   });
 
-  it("keeps individual contracts while spreading hours evenly across the week", () => {
+  it("keeps individual contracts while allocating aggregate hours by demand", () => {
     const week = shifts.filter((shift) => shift.employeeId === "ma-1" && weekStartOf(shift.date) === "2026-08-03");
     expect(week.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(39 * 60);
-    // Gleiche Tagesstunden je Person, kein Stoßtag-Aufschlag: Stoßtage : Normaltage
-    // liegen nahe 1,0 (der durchgehende Sonntag trägt nur ein kleines Plus).
+    // Stoßtage (Fr–So) tragen das 1,5-Fache eines Normaltags (DAY_WEIGHTS).
     const all = shifts.filter((shift) => weekStartOf(shift.date) === "2026-08-03");
     const busy = all.filter((shift) => [0, 5, 6].includes(new Date(`${shift.date}T12:00:00`).getDay()))
       .reduce((sum, shift) => sum + shift.paidMinutes, 0);
     const normal = all.reduce((sum, shift) => sum + shift.paidMinutes, 0) - busy;
-    expect(busy / normal).toBeGreaterThanOrEqual(0.98);
-    expect(busy / normal).toBeLessThanOrEqual(1.15);
+    expect(busy / normal).toBeGreaterThanOrEqual(1.47);
+    expect(busy / normal).toBeLessThanOrEqual(1.53);
   });
 });
 

@@ -40,9 +40,11 @@ export function staffingWindows(blocks: DayBlocks, weekday: WeekdayKey): Staffin
   // the optimizer piles everyone into 18–20 h and the morning falls to its
   // minimum (the old 2-vs-8 split). Busy days (Fr–So) run a bit higher, but the
   // step is gentle so the evening peak stays ~1.5× the morning, not 4×.
-  const busy = DAY_WEIGHTS[weekday] > 1;
-  const peakMin = busy ? 7 : 5;
-  const peakMax = busy ? 10 : 8;
+  // Stoßtage (Fr–So, DAY_WEIGHTS 1,5) tragen das 1,5-Fache eines Normaltags:
+  // Abendspitze 4–6 an Normaltagen, 6–9 an Stoßtagen. Die Obergrenze verhindert,
+  // dass sich der ganze Betrieb in 18–20 h staut und der Vormittag leerläuft.
+  const peakMin = Math.ceil(4 * DAY_WEIGHTS[weekday]);
+  const peakMax = Math.ceil(6 * DAY_WEIGHTS[weekday]);
   add("Tối", 18 * 60, 20 * 60, peakMin, peakMax);
   if (weekday === "sunday") add("Trưa CN", 12 * 60, 14 * 60, peakMin, peakMax);
   add("Đóng cửa", CLOSING_START, 22 * 60 + 30, CLOSING_MIN, CLOSING_MAX);

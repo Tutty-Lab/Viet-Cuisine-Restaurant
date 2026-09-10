@@ -188,6 +188,7 @@ function chooseWeek(
   const preferredCount = fixed
     ? Math.min(limit, Math.floor(target / fixed))
     : Math.min(limit, Math.max(1, Math.floor(target / MIN_SHIFT)), employee.employmentType === "VOLLZEIT" ? 6 : Math.max(1, Math.round(target / 390)));
+  const eligibleWeight = eligible.reduce((sum, date) => sum + DAY_WEIGHTS[effectiveWeekdayKey(date, holidays)], 0);
   const durations = new Set<number>();
   if (fixed) durations.add(fixed);
   else if (target < MIN_SHIFT) durations.add(target);
@@ -220,10 +221,10 @@ function chooseWeek(
     const day = days.get(date)!;
     const occupied = existing.filter((shift) => shift.date === date);
     const weekday = effectiveWeekdayKey(date, holidays);
-    // Gleiche Stunden an JEDEM Arbeitstag: 39 h / 6 Tage ≈ 6,5 h/Tag, egal ob
-    // Stoßtag oder nicht. Der Andrang an Fr–So wird über die LAGE der Schicht
-    // (später am Abend) und mehr Personen gedeckt, nicht über längere Tage.
-    const ideal = target / Math.max(1, preferredCount);
+    // Stoßtage (Fr–So) bekommen das 1,5-Fache eines Normaltags (DAY_WEIGHTS):
+    // an einem vollen Vertrag heißt das z. B. ~5,2 h Di–Do und ~7,8 h Fr–So.
+    // Innerhalb einer Kategorie bleiben die Tage gleich lang.
+    const ideal = target * DAY_WEIGHTS[weekday] / Math.max(1, eligibleWeight) * eligible.length / Math.max(1, preferredCount);
     const before = dayCost(occupied, day.blocks, weekday, dailyTargets.get(date));
     const candidates: { choice: Choice; cost: number }[] = [];
     for (const paid of durations) {
@@ -235,7 +236,7 @@ function chooseWeek(
       }
       if (best) candidates.push({
         choice: { date, paid, option: best },
-        cost: score + ((paid - ideal) / SLOT) ** 2 * 100 + weekdayRank(employee, date) * 4,
+        cost: score + ((paid - ideal) / SLOT) ** 2 * 300 + weekdayRank(employee, date) * 4,
       });
     }
     const next = new Map(states);
@@ -317,20 +318,19 @@ export function generateWeeklySchedule(input: WeeklyInput, existing: Shift[] = [
   );
   let result = [...existing];
   const totalTarget = input.employees.reduce((sum, employee) => sum + monthlyTargetMinutesFor(employee, openDates), 0) / 60;
-  // Sollstunden je Tag nach ÖFFNUNGSDAUER verteilt, nicht nach Stoßtag. So
-  // arbeitet jede Person an jedem Tag ähnlich lang (kein 4-h/9-h-Wechsel), aber
-  // der durchgehend längere Sonntag (kein Mittagsschluss) bekommt genug Deckung.
-  const openMinutesOf = (date: string) =>
-    days.get(date)!.blocks.reduce((sum, block) => sum + (block.endMinutes - block.startMinutes), 0);
-  const spreadByOpenMinutes = (weekDates: string[], total: number) => {
-    const totalOpen = weekDates.reduce((sum, date) => sum + openMinutesOf(date), 0);
+  // Sollstunden je Tag nach NACHFRAGE verteilt: Stoßtag-Gewicht (Fr–So = 1,5)
+  // mal Öffnungsdauer. So bekommen die Stoßtage rund das 1,5-Fache eines
+  // Normaltags, und der durchgehend längere Sonntag zusätzlich genug Deckung.
+  const demandWeightOf = (date: string) => DAY_WEIGHTS[effectiveWeekdayKey(date, holidays)];
+  const spreadByDemand = (weekDates: string[], total: number) => {
+    const totalW = weekDates.reduce((sum, date) => sum + demandWeightOf(date), 0);
     for (const date of weekDates) {
-      dailyTargets.set(date, totalOpen > 0 ? total * openMinutesOf(date) / totalOpen : total / weekDates.length);
+      dailyTargets.set(date, totalW > 0 ? total * demandWeightOf(date) / totalW : total / weekDates.length);
     }
   };
   const dailyTargets = new Map<string, number>();
   for (const [, weekDates] of byWeek) {
-    spreadByOpenMinutes(weekDates, totalTarget * weekDates.length / contractDays);
+    spreadByDemand(weekDates, totalTarget * weekDates.length / contractDays);
   }
   for (const employee of employees) {
     // Offene Tage je Woche für DIESE Person: vor dem Eintritt liegende Tage
@@ -351,7 +351,7 @@ export function generateWeeklySchedule(input: WeeklyInput, existing: Shift[] = [
   // Refit to actual available hours (new hires and leave can reduce a week's budget).
   for (const [, weekDates] of byWeek) {
     const actual = result.filter((s) => weekDates.includes(s.date)).reduce((sum, s) => sum + s.paidMinutes, 0) / 60;
-    spreadByOpenMinutes(weekDates, actual);
+    spreadByDemand(weekDates, actual);
   }
   for (let pass = 0; pass < 3; pass++) {
     let changed = false;

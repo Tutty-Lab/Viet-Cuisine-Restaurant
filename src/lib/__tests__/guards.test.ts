@@ -88,16 +88,16 @@ describe("Zu wenige Leute in der Stoßzeit", () => {
       .find((d) => d.date === "2026-08-01")!
       .peaks.find((p) => p.label === "Tối" && !p.ok)!;
     expect(abend.minStaff).toBe(1); // so viele stehen wirklich da
-    expect(abend.required).toBe(7);
+    expect(abend.required).toBe(6);
   });
 
-  it("accepts seven people throughout a Saturday evening rush", () => {
+  it("accepts six people throughout a Saturday evening rush", () => {
     const zwei = analyzeSchedule({
       year: 2026,
       month: 8,
       workHours: DEFAULT_WORK_HOURS,
-      employees: Array.from({ length: 7 }, (_, index) => emp(String(index), "TEILZEIT", 30)),
-      shifts: Array.from({ length: 7 }, (_, index) => ({ ...shifts[0], id: `s${index}`, employeeId: String(index) })),
+      employees: Array.from({ length: 6 }, (_, index) => emp(String(index), "TEILZEIT", 30)),
+      shifts: Array.from({ length: 6 }, (_, index) => ({ ...shifts[0], id: `s${index}`, employeeId: String(index) })),
     });
     const tag = zwei.peakViolations.find((d) => d.date === "2026-08-01");
     // Am 1.8. ist die Abendspitze jetzt voll; ein etwaiger Verstoß an dem Tag
