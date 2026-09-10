@@ -96,11 +96,8 @@ export async function elementsToPdf(
             border-left: none !important;
             box-sizing: border-box !important;
           }
-          table.stundenzettel-table tr.stunden-shift-sub td {
-            border-bottom: 1px dashed #94a3b8 !important;
-          }
-          table.stundenzettel-table tr.stunden-day-end td {
-            border-bottom: 1.5px solid #475569 !important;
+          table.stundenzettel-table .shift-split-divider {
+            border-top: 1px solid #cbd5e1 !important;
           }
         `;
         clonedDoc.head.appendChild(style);

@@ -94,19 +94,15 @@ export function StundenzettelPage({
           </tr>
         </thead>
         <tbody>
-          {rows.flatMap((d) => {
-            // Geteilte Dienste (mittags + abends) sind ZWEI Arbeitsperioden und
-            // gehören auf dem Stundenzettel in ZWEI Zeilen – NICHT als "11:30 /
-            // 16:30" in eine Zelle gequetscht. Jede Zeile hat einen Beginn und
-            // ein Ende, wie es die Behörde erwartet. Das Datum wird je Zeile
-            // wiederholt, damit jede Zeile für sich lesbar ist.
+          {rows.map((d) => {
             const dienste = [...(byDate.get(d) ?? [])].sort(
               (a, b) => a.startMinutes - b.startMinutes,
             );
             const wd = WEEKDAY_LABELS_DE[weekdayKeyOf(parseIsoDate(d))];
             const holiday = holidayNames.get(d);
             const closed = closedByDate.get(d);
-            const rowCls = wd === "Samstag" || wd === "Sonntag" || holiday || closed ? "bg-slate-50" : "";
+            const isWeekend = wd === "Samstag" || wd === "Sonntag";
+            const rowCls = isWeekend || holiday || closed ? "bg-slate-50" : "";
             const datum = format(parseIsoDate(d), "dd.MM.yyyy");
 
             if (dienste.length === 0) {
@@ -115,10 +111,10 @@ export function StundenzettelPage({
                 : holiday
                   ? `Frei (Feiertag: ${holiday})`
                   : "Frei";
-              return [
-                <tr key={d} className={`${rowCls} stunden-day-end`}>
-                  <Td className="whitespace-nowrap">
-                    <div>{datum}</div>
+              return (
+                <tr key={d} className={rowCls}>
+                  <Td className="whitespace-nowrap align-middle">
+                    <div className="font-semibold text-slate-800">{datum}</div>
                     <div className="text-slate-500">{wd}</div>
                   </Td>
                   <Td className="text-center" />
@@ -126,57 +122,89 @@ export function StundenzettelPage({
                   <Td className="text-center" />
                   <Td className="text-center">0,00</Td>
                   <Td className="text-left text-slate-500">{bemerkung}</Td>
-                </tr>,
-              ];
+                </tr>
+              );
             }
 
-            const isMulti = dienste.length > 1;
-            return dienste.map((x, i) => {
-              const isLast = i === dienste.length - 1;
-              const rowClass = `${rowCls} ${isLast ? "stunden-day-end" : "stunden-shift-sub"}`;
-              const shiftBadge = isMulti ? (
-                i === 0 ? (
-                  <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-900 border border-amber-300">
-                    Ca sáng · Früh
-                  </span>
-                ) : i === 1 ? (
-                  <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-900 border border-indigo-300">
-                    Ca chiều · Spät
-                  </span>
-                ) : (
-                  <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-800 border border-slate-300">
-                    Ca {i + 1}
-                  </span>
-                )
-              ) : null;
-
+            if (dienste.length === 1) {
+              const x = dienste[0];
               return (
-                <tr key={`${d}#${i}`} className={rowClass}>
-                  <Td className="whitespace-nowrap">
+                <tr key={d} className={rowCls}>
+                  <Td className="whitespace-nowrap align-middle">
                     <div className="font-semibold text-slate-800">{datum}</div>
-                    <div className="text-slate-600 flex items-center gap-1.5 mt-0.5">
-                      <span>{wd}</span>
-                      {shiftBadge}
-                    </div>
+                    <div className="text-slate-500">{wd}</div>
                   </Td>
-                  <Td className="text-center font-medium">{minutesToTime(x.startMinutes)}</Td>
-                  <Td className="text-center font-medium">{minutesToTime(x.endMinutes)}</Td>
-                  <Td className="text-center">
-                    {x.pauseMinutes} Min
-                    {x.pauseStartMinutes != null && x.pauseMinutes > 0 && (
-                      <div className="text-[10px] text-slate-500">
-                        {minutesToTime(x.pauseStartMinutes)}–
-                        {minutesToTime(x.pauseStartMinutes + x.pauseMinutes)}
-                      </div>
-                    )}
-                  </Td>
-                  <Td className="text-center font-medium">{minutesToDecimalHours(x.paidMinutes)}</Td>
-                  <Td className="text-left text-slate-500">
+                  <Td className="text-center font-medium align-middle">{minutesToTime(x.startMinutes)}</Td>
+                  <Td className="text-center font-medium align-middle">{minutesToTime(x.endMinutes)}</Td>
+                  <Td className="text-center align-middle">{x.pauseMinutes} Min</Td>
+                  <Td className="text-center font-medium align-middle">{minutesToDecimalHours(x.paidMinutes)}</Td>
+                  <Td className="text-left text-slate-500 align-middle">
                     {holiday ? `Feiertag: ${holiday}` : ""}
                   </Td>
                 </tr>
               );
-            });
+            }
+
+            // Ngày có từ 2 ca trở lên (ví dụ: thứ 3 làm ca sáng và ca chiều):
+            // Giữ nguyên 1 dòng cho ngày đó, các ô ca được kẻ vạch phân tách rõ ràng.
+            return (
+              <tr key={d} className={rowCls}>
+                <Td className="whitespace-nowrap align-middle">
+                  <div className="font-semibold text-slate-800">{datum}</div>
+                  <div className="text-slate-500">{wd}</div>
+                </Td>
+                <Td noPadding className="text-center font-medium align-middle">
+                  {dienste.map((x, i) => (
+                    <div
+                      key={i}
+                      className={`py-[3px] px-2 ${i > 0 ? "border-t border-slate-300 shift-split-divider" : ""}`}
+                    >
+                      {minutesToTime(x.startMinutes)}
+                    </div>
+                  ))}
+                </Td>
+                <Td noPadding className="text-center font-medium align-middle">
+                  {dienste.map((x, i) => (
+                    <div
+                      key={i}
+                      className={`py-[3px] px-2 ${i > 0 ? "border-t border-slate-300 shift-split-divider" : ""}`}
+                    >
+                      {minutesToTime(x.endMinutes)}
+                    </div>
+                  ))}
+                </Td>
+                <Td noPadding className="text-center align-middle">
+                  {dienste.map((x, i) => (
+                    <div
+                      key={i}
+                      className={`py-[3px] px-2 ${i > 0 ? "border-t border-slate-300 shift-split-divider" : ""}`}
+                    >
+                      {x.pauseMinutes} Min
+                    </div>
+                  ))}
+                </Td>
+                <Td noPadding className="text-center font-medium align-middle">
+                  {dienste.map((x, i) => (
+                    <div
+                      key={i}
+                      className={`py-[3px] px-2 ${i > 0 ? "border-t border-slate-300 shift-split-divider" : ""}`}
+                    >
+                      {minutesToDecimalHours(x.paidMinutes)}
+                    </div>
+                  ))}
+                </Td>
+                <Td noPadding className="text-left text-slate-500 align-middle">
+                  {dienste.map((_, i) => (
+                    <div
+                      key={i}
+                      className={`py-[3px] px-2 ${i > 0 ? "border-t border-slate-300 shift-split-divider" : ""}`}
+                    >
+                      {i === 0 && holiday ? `Feiertag: ${holiday}` : "\u00A0"}
+                    </div>
+                  ))}
+                </Td>
+              </tr>
+            );
           })}
         </tbody>
         <tfoot>
@@ -249,13 +277,15 @@ function Td({
   children,
   className = "",
   colSpan,
+  noPadding,
 }: {
   children?: React.ReactNode;
   className?: string;
   colSpan?: number;
+  noPadding?: boolean;
 }) {
   return (
-    <td colSpan={colSpan} className={`px-2 py-[2px] ${className}`}>
+    <td colSpan={colSpan} className={`${noPadding ? "p-0" : "px-2 py-[2px]"} ${className}`}>
       {children}
     </td>
   );
