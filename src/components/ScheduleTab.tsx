@@ -409,17 +409,37 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                           title="Bấm để sửa"
                         >
                           {shift ? (
-                            <div className="leading-tight space-y-0.5">
-                              {dienste.map((x) => (
-                                <div key={x.id}>
-                                  <div className="font-medium">
-                                    {minutesToTime(x.startMinutes)}–{minutesToTime(x.endMinutes)}
+                            <div className="leading-tight space-y-1">
+                              {dienste.map((x, idx) => {
+                                const isMulti = dienste.length > 1;
+                                const shiftTag = isMulti
+                                  ? idx === 0
+                                    ? "Ca sáng"
+                                    : idx === 1
+                                      ? "Ca chiều"
+                                      : `Ca ${idx + 1}`
+                                  : null;
+                                return (
+                                  <div
+                                    key={x.id}
+                                    className={idx > 0 ? "border-t border-slate-200/90 pt-1 mt-0.5" : ""}
+                                  >
+                                    <div className="font-medium flex items-center justify-center gap-1">
+                                      {shiftTag && (
+                                        <span className="inline-block text-[9px] font-semibold text-slate-600 bg-slate-100/90 border border-slate-300/80 rounded px-1">
+                                          {shiftTag}
+                                        </span>
+                                      )}
+                                      <span>
+                                        {minutesToTime(x.startMinutes)}–{minutesToTime(x.endMinutes)}
+                                      </span>
+                                    </div>
+                                    <div className="text-[10px] opacity-80">
+                                      {minutesToShortHours(x.paidMinutes)} · <PauseLabel shift={x} />
+                                    </div>
                                   </div>
-                                  <div className="text-[10px] opacity-80">
-                                    {minutesToShortHours(x.paidMinutes)} · <PauseLabel shift={x} />
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           ) : (
                             <span className="text-[11px]">Nghỉ</span>

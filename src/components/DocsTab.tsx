@@ -139,7 +139,7 @@ export function DocsTab() {
           <b>06:30–14:30</b> và không được tự cắt ngắn.
         </p>
         <p>
-          Pause là khoảng thời gian cụ thể trong ca: trên 6 giờ công cần 30 phút, trên 9 giờ cần 45 phút.
+          Pause là khoảng thời gian cụ thể trong ca: trên 6 giờ công liên tục cần 30 phút, trên 8 giờ liên tục cần 60 phút.
           Khoảng pause kéo dài thời gian có mặt nhưng không tính vào giờ công:
         </p>
         <div className="overflow-x-auto">

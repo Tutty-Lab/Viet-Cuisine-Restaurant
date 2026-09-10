@@ -82,6 +82,16 @@ body {
   box-sizing: border-box !important;
 }
 
+/* Kẻ tách rõ ràng giữa ca sáng và ca chiều trong cùng 1 ngày */
+.stundenzettel-table tr.stunden-shift-sub td {
+  border-bottom: 1px dashed #94a3b8 !important;
+}
+
+/* Kẻ viền phân định ranh giới kết thúc ngày */
+.stundenzettel-table tr.stunden-day-end td {
+  border-bottom: 1.5px solid #475569 !important;
+}
+
 /* ===================== Druck: Stundenzettel ===================== */
 
 /* @page MUSS auf oberster Ebene stehen, NICHT in @media print geschachtelt:

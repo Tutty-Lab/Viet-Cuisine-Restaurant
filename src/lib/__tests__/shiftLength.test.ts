@@ -3,16 +3,16 @@ import { chooseShiftHours, maxShiftHoursForWindow } from "../scheduler";
 
 describe("maxShiftHoursForWindow", () => {
   it("rechnet mit Anwesenheit inkl. Pause, nicht mit bezahlter Zeit", () => {
-    // Mit der gesetzlichen Pause: 10h->645, 9h->570, 8h->510, 7h->450,
+    // Mit der Pausenregel (>6h: 30m, >8h: 60m): 10h->660, 9h->600, 8h->510, 7h->450,
     // 6h->360, 5h->300, 3h->180.
     //
     // Der ganze Rahmen 11:30–22:00 sind 630 Minuten und trägt damit KEINE
-    // 10-Stunden-Schicht mehr (die bräuchte 645). Neun Stunden passen.
+    // 10-Stunden-Schicht mehr (die bräuchte 660). Neun Stunden passen (brauchen 600).
     expect(maxShiftHoursForWindow(630)).toBe(9); // 11:30–22:00
-    expect(maxShiftHoursForWindow(645)).toBe(10); // erst ab 10,75 h Fenster
-    expect(maxShiftHoursForWindow(644)).toBe(9);
-    expect(maxShiftHoursForWindow(570)).toBe(9); // exakt 9 h + 30 min
-    expect(maxShiftHoursForWindow(569)).toBe(8);
+    expect(maxShiftHoursForWindow(660)).toBe(10); // erst ab 11 h Fenster
+    expect(maxShiftHoursForWindow(659)).toBe(9);
+    expect(maxShiftHoursForWindow(600)).toBe(9); // exakt 9 h + 60 min
+    expect(maxShiftHoursForWindow(599)).toBe(8);
     expect(maxShiftHoursForWindow(510)).toBe(8); // 8 h + 30 min
     expect(maxShiftHoursForWindow(509)).toBe(7);
     expect(maxShiftHoursForWindow(450)).toBe(7); // 7 h + 30 min

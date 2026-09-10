@@ -25,22 +25,15 @@ export function minutesToTime(totalMinutes: number): string {
 }
 
 /**
- * Pausenregel nach dem Gesetz (§ 4 ArbZG): über 6 Stunden 30 Minuten, über
- * 9 Stunden 45 Minuten.
+ * Pausenregel:
+ * - Làm việc liên tục trên 6 tiếng (> 6h): nghỉ giải lao 30 phút.
+ * - Làm việc liên tục trên 8 tiếng (> 8h): nghỉ giải lao 60 phút.
+ * - Từ 6 tiếng trở xuống (<= 6h): không tính nghỉ giải lao (0 phút).
  *
- * Das ArbZG ist BUNDESRECHT und gilt in Hamburg wie überall – eine eigene
- * Regelung je Bundesland gibt es nicht. Andere Filialen geben MEHR (VietHaus
- * 60 min ab 8 h); mehr ist erlaubt, weniger nicht.
- *
- * Die Pause zählt NICHT zum Soll, verlängert aber die Anwesenheit:
- * presence = paid + pause.
- *
- * FOLGE für den Chef: sein 10-Stunden-Tag geht damit nicht mehr auf.
- * 10 h + 45 min sind 10,75 h Anwesenheit, der Rahmen Di–Fr ist aber nur
- * 11:30–22:00, also 10,5 h. Die längste Schicht ist damit 9 h.
+ * Tiêu chuẩn này cao hơn hoặc bằng luật lao động Đức (§ 4 ArbZG: > 6h là 30 min, > 9h là 45 min).
  */
 export function calculatePause(paidMinutes: number): number {
-  if (paidMinutes > 9 * 60) return 45;
+  if (paidMinutes > 8 * 60) return 60;
   if (paidMinutes > 6 * 60) return 30;
   return 0;
 }

@@ -28,21 +28,47 @@ function ShiftCell({ shifts, closed }: { shifts: Shift[]; closed: boolean }) {
   if (shifts.length === 0) {
     return <span className="text-slate-400">{closed ? "—" : "frei"}</span>;
   }
+  const isMulti = shifts.length > 1;
   return (
-    <>
-      {shifts.map((shift) => (
-        <div key={shift.id}>
-          <div className="whitespace-nowrap">
-            {minutesToTime(shift.startMinutes)}–{minutesToTime(shift.endMinutes)}
+    <div className="flex flex-col h-full justify-center">
+      {shifts.map((shift, idx) => {
+        const shiftTag = isMulti
+          ? idx === 0
+            ? "Ca sáng"
+            : idx === 1
+              ? "Ca chiều"
+              : `Ca ${idx + 1}`
+          : null;
+        return (
+          <div
+            key={shift.id}
+            className={`${idx > 0 ? "border-t border-slate-300 pt-1 mt-1" : ""} text-center`}
+          >
+            <div className="whitespace-nowrap">
+              {shiftTag && (
+                <span className="inline-block text-[9px] font-semibold text-slate-700 bg-slate-100 border border-slate-300 rounded px-1 mr-1">
+                  {shiftTag}
+                </span>
+              )}
+              <span className="font-medium">
+                {minutesToTime(shift.startMinutes)}–{minutesToTime(shift.endMinutes)}
+              </span>
+            </div>
+            <div className="text-[10px] text-slate-500">
+              {minutesToShortHours(shift.paidMinutes)}
+              {shift.pauseMinutes > 0 &&
+                ` · P ${shift.pauseMinutes}${
+                  shift.pauseStartMinutes != null
+                    ? ` (${minutesToTime(shift.pauseStartMinutes)}–${minutesToTime(
+                        shift.pauseStartMinutes + shift.pauseMinutes,
+                      )})`
+                    : ""
+                }`}
+            </div>
           </div>
-          <div className="text-[10px] text-slate-500">
-            {minutesToShortHours(shift.paidMinutes)}
-            {shift.pauseMinutes > 0 && ` · P ${shift.pauseMinutes}${shift.pauseStartMinutes != null
-              ? ` (${minutesToTime(shift.pauseStartMinutes)}–${minutesToTime(shift.pauseStartMinutes + shift.pauseMinutes)})` : ""}`}
-          </div>
-        </div>
-      ))}
-    </>
+        );
+      })}
+    </div>
   );
 }
 

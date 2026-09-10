@@ -116,7 +116,7 @@ export function StundenzettelPage({
                   ? `Frei (Feiertag: ${holiday})`
                   : "Frei";
               return [
-                <tr key={d} className={rowCls}>
+                <tr key={d} className={`${rowCls} stunden-day-end`}>
                   <Td className="whitespace-nowrap">
                     <div>{datum}</div>
                     <div className="text-slate-500">{wd}</div>
@@ -130,36 +130,53 @@ export function StundenzettelPage({
               ];
             }
 
-            return dienste.map((x, i) => (
-              <tr key={`${d}#${i}`} className={rowCls}>
-                <Td className="whitespace-nowrap">
-                  <div>{datum}</div>
-                  <div className="text-slate-500">
-                    {wd}
-                    {dienste.length > 1 && (
-                      <span className="text-[10px] text-slate-400 font-normal ml-1">
-                        ({i + 1})
-                      </span>
-                    )}
-                  </div>
-                </Td>
-                <Td className="text-center">{minutesToTime(x.startMinutes)}</Td>
-                <Td className="text-center">{minutesToTime(x.endMinutes)}</Td>
-                <Td className="text-center">
-                  {x.pauseMinutes} Min
-                  {x.pauseStartMinutes != null && x.pauseMinutes > 0 && (
-                    <div className="text-[10px]">
-                      {minutesToTime(x.pauseStartMinutes)}–
-                      {minutesToTime(x.pauseStartMinutes + x.pauseMinutes)}
+            const isMulti = dienste.length > 1;
+            return dienste.map((x, i) => {
+              const isLast = i === dienste.length - 1;
+              const rowClass = `${rowCls} ${isLast ? "stunden-day-end" : "stunden-shift-sub"}`;
+              const shiftBadge = isMulti ? (
+                i === 0 ? (
+                  <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-900 border border-amber-300">
+                    Ca sáng · Früh
+                  </span>
+                ) : i === 1 ? (
+                  <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-900 border border-indigo-300">
+                    Ca chiều · Spät
+                  </span>
+                ) : (
+                  <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-800 border border-slate-300">
+                    Ca {i + 1}
+                  </span>
+                )
+              ) : null;
+
+              return (
+                <tr key={`${d}#${i}`} className={rowClass}>
+                  <Td className="whitespace-nowrap">
+                    <div className="font-semibold text-slate-800">{datum}</div>
+                    <div className="text-slate-600 flex items-center gap-1.5 mt-0.5">
+                      <span>{wd}</span>
+                      {shiftBadge}
                     </div>
-                  )}
-                </Td>
-                <Td className="text-center">{minutesToDecimalHours(x.paidMinutes)}</Td>
-                <Td className="text-left text-slate-500">
-                  {holiday ? `Feiertag: ${holiday}` : ""}
-                </Td>
-              </tr>
-            ));
+                  </Td>
+                  <Td className="text-center font-medium">{minutesToTime(x.startMinutes)}</Td>
+                  <Td className="text-center font-medium">{minutesToTime(x.endMinutes)}</Td>
+                  <Td className="text-center">
+                    {x.pauseMinutes} Min
+                    {x.pauseStartMinutes != null && x.pauseMinutes > 0 && (
+                      <div className="text-[10px] text-slate-500">
+                        {minutesToTime(x.pauseStartMinutes)}–
+                        {minutesToTime(x.pauseStartMinutes + x.pauseMinutes)}
+                      </div>
+                    )}
+                  </Td>
+                  <Td className="text-center font-medium">{minutesToDecimalHours(x.paidMinutes)}</Td>
+                  <Td className="text-left text-slate-500">
+                    {holiday ? `Feiertag: ${holiday}` : ""}
+                  </Td>
+                </tr>
+              );
+            });
           })}
         </tbody>
         <tfoot>
