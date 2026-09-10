@@ -251,17 +251,18 @@ describe("Wochenplan: feste Wochenstruktur", () => {
     }
   });
 
-  it("allocates busy-day paid hours at 1.5 times normal days within each full week", () => {
+  it("verteilt die Stunden je Person gleichmäßig über die Woche (kein Stoßtag-Aufschlag)", () => {
     const shifts = generateSchedule({ year: 2026, month: 9, workHours: DEFAULT_WORK_HOURS, employees: SAMPLE_EMPLOYEES });
-    // Der Betrieb ist Fr–So am stärksten (DAY_WEIGHTS 1,5): diese Tage tragen
-    // rund das 1,5-Fache der bezahlten Stunden eines Normaltags.
+    // Gleiche Tagesstunden je Person (39 h / 6 Tage ≈ 6,5 h). Der Abendandrang an
+    // Fr–So wird über die Personal-Fenster gedeckt, nicht über längere Tage –
+    // Stoßtage : Normaltage liegen daher nahe 1,0.
     for (const week of ["2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21"]) {
       const own = shifts.filter((shift) => weekStartOf(shift.date) === week);
       const busy = own.filter((shift) => [0, 5, 6].includes(new Date(`${shift.date}T12:00:00`).getDay()));
       const busyMinutes = busy.reduce((sum, shift) => sum + shift.paidMinutes, 0);
       const normalMinutes = own.reduce((sum, shift) => sum + shift.paidMinutes, 0) - busyMinutes;
-      expect(busyMinutes / normalMinutes).toBeGreaterThanOrEqual(1.47);
-      expect(busyMinutes / normalMinutes).toBeLessThanOrEqual(1.53);
+      expect(busyMinutes / normalMinutes).toBeGreaterThanOrEqual(0.98);
+      expect(busyMinutes / normalMinutes).toBeLessThanOrEqual(1.15);
     }
   });
 });
