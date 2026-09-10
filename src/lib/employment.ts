@@ -16,8 +16,6 @@ export function employmentLabelVi(type: EmploymentType): string {
       return "Minijob";
     case "AZUBI":
       return "Học nghề";
-    case "AZUBI":
-      return "Học nghề";
   }
 }
 

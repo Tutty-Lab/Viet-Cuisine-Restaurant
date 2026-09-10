@@ -82,8 +82,8 @@ export function SchedulePrintPage({
   const overrides = Object.fromEntries(schedule.dateOverrides.map((o) => [o.date, o]));
   const closedOn = (d: string) => isDayClosed(schedule.workHours, d, holidays, overrides);
 
-  const th = "border border-slate-300 px-2 py-1 font-semibold";
-  const td = "border border-slate-300 px-2 py-[3px]";
+  const th = "px-2 py-1 font-semibold";
+  const td = "px-2 py-[3px]";
 
   return (
     <div className="stundenzettel-page bg-white text-slate-900 mx-auto max-w-[210mm] p-6 text-[12px]">
@@ -100,7 +100,7 @@ export function SchedulePrintPage({
 
       {layout === "byEmployee" ? (
         // Mitarbeiter als Zeilen, Tage als Spalten – wie in der App.
-        <table className="w-full border-collapse text-[11px]">
+        <table className="stundenzettel-table w-full text-[11px]">
           <thead>
             <tr className="bg-slate-100">
               <th className={`${th} text-left`}>Mitarbeiter</th>
@@ -147,7 +147,7 @@ export function SchedulePrintPage({
         </table>
       ) : (
         // Tage als Zeilen – für den ganzen Monat.
-        <table className="w-full border-collapse text-[11px]">
+        <table className="stundenzettel-table w-full text-[11px]">
           <thead>
             <tr className="bg-slate-100">
               <th className={`${th} text-left`}>Datum</th>

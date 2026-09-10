@@ -40,6 +40,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const [pdfList, setPdfList] = useState<Employee[] | null>(null);
   const [pdfSchedule, setPdfSchedule] = useState<ScheduleRange | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState<string>("");
   const pdfStage = useRef<HTMLDivElement>(null);
 
   // Zeitraum für den Stundenzettel-Ausdruck: gesetzt => Wochen-Zettel (nur diese
@@ -102,6 +103,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   ) {
     if (list.length === 0 || pdfBusy) return;
     setPdfBusy(true);
+    setPdfProgress(list.length > 1 ? `1/${list.length}` : "");
     flushSync(() => {
       setPdfSchedule(null);
       setSzDates(sz?.dates);
@@ -112,12 +114,17 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
       const pages = Array.from(
         pdfStage.current?.querySelectorAll<HTMLElement>(".stundenzettel-page") ?? [],
       );
-      await elementsToPdf(pages, filename);
+      await elementsToPdf(pages, filename, (current, total) => {
+        if (total > 1) {
+          setPdfProgress(`${current}/${total}`);
+        }
+      });
     } catch (err) {
       alert(`Không tạo được PDF: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setPdfList(null);
       setPdfBusy(false);
+      setPdfProgress("");
     }
   }
 
@@ -125,6 +132,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   async function doPdfSchedule(range: ScheduleRange, filename: string) {
     if (range.dates.length === 0 || pdfBusy) return;
     setPdfBusy(true);
+    setPdfProgress("");
     flushSync(() => {
       setPdfList(null);
       setPdfSchedule(range);
@@ -133,13 +141,18 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
       const pages = Array.from(
         pdfStage.current?.querySelectorAll<HTMLElement>(".stundenzettel-page") ?? [],
       );
-      await elementsToPdf(pages, filename);
+      await elementsToPdf(pages, filename, (current, total) => {
+        if (total > 1) {
+          setPdfProgress(`${current}/${total}`);
+        }
+      });
       if (range.weekStart) markWeekPrinted(range.weekStart);
     } catch (err) {
       alert(`Không tạo được PDF: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setPdfSchedule(null);
       setPdfBusy(false);
+      setPdfProgress("");
     }
   }
 
@@ -288,9 +301,13 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
                 onClick={onPdf}
                 className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
               >
-                ⬇ Xuất PDF
+                {pdfBusy ? `Đang tạo PDF ${pdfProgress ? `(${pdfProgress})` : "…"}` : "⬇ Xuất PDF"}
               </button>
-              {pdfBusy && <span className="text-sm text-slate-500">Đang tạo PDF…</span>}
+              {pdfBusy && (
+                <span className="text-sm text-slate-500">
+                  {pdfProgress ? `Đang xử lý trang ${pdfProgress}…` : "Đang tạo PDF…"}
+                </span>
+              )}
             </div>
           </div>
 
@@ -304,8 +321,8 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
             <b>Bảng chấm công (Stundenzettel)</b> theo mẫu tiếng Đức để nộp — một tờ mỗi người, chọn
             cả tháng hoặc từng tuần. <b>Lịch làm việc</b> là lịch treo ở quán (cả tháng hoặc từng
             tuần, cho cả quán hoặc một người). <b>In lịch một tuần sẽ khóa lịch tháng</b> để bản
-            treo luôn khớp với hệ thống. Xuất PDF tải thẳng file về máy; trên điện thoại mở bảng
-            Chia sẻ.
+            treo luôn khớp với hệ thống. Xuất PDF tải thẳng file về máy dưới dạng tệp PDF (tối ưu
+            cho iPhone, iPad, Safari, Chrome).
           </p>
 
           {isLocked && (

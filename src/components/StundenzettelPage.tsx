@@ -82,7 +82,7 @@ export function StundenzettelPage({
         <Info label="Jahr" value={String(schedule.year)} />
       </div>
 
-      <table className="w-full border-collapse text-[11px]">
+      <table className="stundenzettel-table w-full text-[11px]">
         <thead>
           <tr className="bg-slate-100">
             <Th>Datum / Wochentag</Th>
@@ -212,7 +212,7 @@ function BlankLine() {
 
 function Th({ children, className = "" }: { children?: React.ReactNode; className?: string }) {
   return (
-    <th className={`border border-slate-300 px-2 py-1 text-center font-semibold ${className}`}>
+    <th className={`px-2 py-1 text-center font-semibold ${className}`}>
       {children}
     </th>
   );
@@ -230,7 +230,7 @@ function Td({
   rowSpan?: number;
 }) {
   return (
-    <td colSpan={colSpan} rowSpan={rowSpan} className={`border border-slate-300 px-2 py-[3px] ${className}`}>
+    <td colSpan={colSpan} rowSpan={rowSpan} className={`px-2 py-[3px] ${className}`}>
       {children}
     </td>
   );

@@ -42,13 +42,15 @@ body {
 }
 
 /* Bühne für den PDF-Export: muss wirklich gerendert sein (display:none kann
-   html2canvas nicht aufnehmen), liegt deshalb nur außerhalb des Sichtfelds. */
+   html2canvas nicht aufnehmen). Nằm ẩn dưới lớp giao diện tại (0,0) để tránh lỗi lệch tọa độ subpixel. */
 .pdf-stage {
-  position: absolute;
+  position: fixed;
   top: 0;
-  left: -10000px;
+  left: 0;
   width: 210mm;
   background: #fff;
+  z-index: -9999;
+  opacity: 0.01;
   pointer-events: none;
 }
 
@@ -58,6 +60,26 @@ body {
 .stundenzettel-page {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ===================== Kẻ bảng Stundenzettel & Lịch ===================== */
+/* Dùng border-collapse: separate và border-spacing: 0 để đảm bảo 100% không
+   bị lỗi mất nét kẻ viền trong html2canvas, Safari iOS và khi in ấn. */
+.stundenzettel-table {
+  width: 100% !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  border-top: 1px solid #94a3b8 !important;
+  border-left: 1px solid #94a3b8 !important;
+}
+
+.stundenzettel-table th,
+.stundenzettel-table td {
+  border-right: 1px solid #94a3b8 !important;
+  border-bottom: 1px solid #94a3b8 !important;
+  border-top: none !important;
+  border-left: none !important;
+  box-sizing: border-box !important;
 }
 
 /* ===================== Druck: Stundenzettel ===================== */

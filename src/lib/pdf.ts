@@ -37,34 +37,35 @@ const FONT_STACK =
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
 
-export async function elementsToPdf(elements: HTMLElement[], filename: string): Promise<void> {
+export async function elementsToPdf(
+  elements: HTMLElement[],
+  filename: string,
+  onProgress?: (current: number, total: number) => void,
+): Promise<void> {
   if (elements.length === 0) return;
 
   // Schriften ZUERST laden. Sonst nimmt html2canvas eine Seite gelegentlich auf,
-  // bevor die Schrift/Styles stehen, und rendert sie in der Serifen-Rückfallschrift
-  // ganz ohne unser Layout (eine Seite „ohne Tabelle", die anderen korrekt).
+  // bevor die Schrift/Styles stehen.
   try {
     await document.fonts?.ready;
   } catch {
     // Ohne Font-Loading-API einfach weiter – dann gilt die Systemschrift.
   }
-  // Zwei Frames + kurze Pause, damit die Offscreen-Bühne wirklich fertig
-  // gesetzt UND gemalt ist, bevor die ERSTE Seite aufgenommen wird.
+  // Hai frames + ngắn pause để đảm bảo DOM render hoàn tất
   await nextFrame();
   await nextFrame();
-  await sleep(200);
+  await sleep(150);
 
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
 
   for (let i = 0; i < elements.length; i++) {
+    onProgress?.(i + 1, elements.length);
     const el = elements[i];
-    // Breite/Höhe UND Fenstermaße explizit setzen. Ohne das klont html2canvas
-    // in ein iframe so breit wie der Bildschirm – auf dem Handy ~360 px statt
-    // der 794 px einer A4-Seite, und die PDF kommt leer oder abgeschnitten.
-    const elWidth = el.scrollWidth;
-    const elHeight = el.scrollHeight;
+    const elWidth = el.scrollWidth || 794;
+    const elHeight = el.scrollHeight || 1122;
+
     const canvas = await html2canvas(el, {
-      scale: 2, // schärfer als 1:1, aber noch vertretbare Dateigröße
+      scale: 2, // Đảm bảo độ sắc nét cao cho văn bản và đường kẻ bảng
       backgroundColor: "#ffffff",
       logging: false,
       width: elWidth,
@@ -73,12 +74,39 @@ export async function elementsToPdf(elements: HTMLElement[], filename: string): 
       windowHeight: elHeight,
       scrollX: 0,
       scrollY: 0,
-      // Im Klon die Schrift hart setzen: geht sonst die vom <body> geerbte
-      // Schrift verloren, rendert html2canvas Times (Serifen) – der „kaputte"
-      // Zettel. Die Bühne bekommt zusätzlich eine feste Breite.
-      onclone: (_doc, clonedEl) => {
-        clonedEl.style.fontFamily = FONT_STACK;
+      x: 0,
+      y: 0,
+      // Khi clone DOM, cô lập duy nhất trang hiện tại và đưa về tọa độ (0, 0).
+      // Loại bỏ toàn bộ trang anh em trong clone để không bị lỗi tràn Y, lệch tọa độ
+      // hoặc WebKit trên iPhone cắt xén các trang phía sau của nhân viên khác.
+      onclone: (clonedDoc, clonedEl) => {
+        clonedDoc.body.style.margin = "0";
+        clonedDoc.body.style.padding = "0";
+        clonedDoc.body.style.background = "#ffffff";
+        clonedDoc.body.style.overflow = "hidden";
+
+        clonedEl.style.position = "static";
+        clonedEl.style.margin = "0";
         clonedEl.style.width = `${elWidth}px`;
+        clonedEl.style.maxWidth = `${elWidth}px`;
+        clonedEl.style.fontFamily = FONT_STACK;
+        clonedEl.style.opacity = "1";
+        clonedEl.style.visibility = "visible";
+
+        const parent = clonedEl.parentElement;
+        if (parent) {
+          Array.from(parent.children).forEach((child) => {
+            if (child !== clonedEl) {
+              child.remove();
+            }
+          });
+          parent.style.position = "static";
+          parent.style.margin = "0";
+          parent.style.padding = "0";
+          parent.style.left = "0";
+          parent.style.top = "0";
+          parent.style.opacity = "1";
+        }
       },
     });
 
@@ -93,47 +121,48 @@ export async function elementsToPdf(elements: HTMLElement[], filename: string): 
 
     if (i > 0) doc.addPage();
     doc.addImage(
-      canvas.toDataURL("image/jpeg", 0.92),
+      canvas.toDataURL("image/jpeg", 0.95),
       "JPEG",
       (A4_WIDTH_MM - width) / 2,
       0,
       width,
       height,
     );
-    // Kurz durchatmen zwischen den Seiten, damit jede Aufnahme sauber startet.
-    await sleep(30);
+
+    // Giải phóng ngay bộ nhớ Canvas sau khi ghi trang vào PDF (rất quan trọng trên iOS Safari)
+    canvas.width = 0;
+    canvas.height = 0;
+
+    // Nghỉ ngắn giữa các trang để giải phóng luồng chính
+    await sleep(25);
   }
 
   await deliver(doc.output("blob"), filename);
 }
 
 /**
- * PDF ausliefern. Auf dem Handy NICHT einfach herunterladen:
- * iOS Safari ignoriert das download-Attribut und zeigt die PDF stattdessen
- * nur an, statt sie zu speichern. Deshalb zuerst das System-Teilen-Menü
- * anbieten („In Dateien sichern", per Zalo/Mail verschicken …) und nur am
- * Rechner den klassischen Download nehmen.
+ * Tải file PDF trực tiếp về máy.
+ * Đặt kiểu MIME thành application/octet-stream với tên file .pdf để các trình duyệt
+ * (đặc biệt là Safari iOS, Chrome trên iPhone/Android) tự động kích hoạt trình tải file
+ * và lưu thẳng vào máy (thư mục Tệp / Downloads) thay vì mở sang link/tab mới.
  */
-async function deliver(blob: Blob, filename: string): Promise<void> {
-  const file = new File([blob], filename, { type: "application/pdf" });
-
-  if (typeof navigator !== "undefined" && navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: filename });
-      return;
-    } catch (err) {
-      // Abbruch durch den Nutzer ist kein Fehler – dann gar nichts tun.
-      if (err instanceof Error && err.name === "AbortError") return;
-      // Sonst (z.B. abgelaufene Nutzerinteraktion) unten normal herunterladen.
-    }
-  }
-
-  const url = URL.createObjectURL(blob);
+export async function deliver(blob: Blob, filename: string): Promise<void> {
+  if (typeof document === "undefined") return;
+  const octetBlob = new Blob([blob], { type: "application/octet-stream" });
+  const url = URL.createObjectURL(octetBlob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  a.rel = "noopener";
+  a.style.display = "none";
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+
+  // Dọn dẹp URL sau khi trình duyệt đã tiếp nhận download
+  setTimeout(() => {
+    if (document.body.contains(a)) {
+      document.body.removeChild(a);
+    }
+    URL.revokeObjectURL(url);
+  }, 60_000);
 }
