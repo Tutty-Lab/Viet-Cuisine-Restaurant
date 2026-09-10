@@ -76,37 +76,56 @@ export async function elementsToPdf(
       scrollY: 0,
       x: 0,
       y: 0,
-      // Khi clone DOM, cô lập duy nhất trang hiện tại và đưa về tọa độ (0, 0).
-      // Loại bỏ toàn bộ trang anh em trong clone để không bị lỗi tràn Y, lệch tọa độ
-      // hoặc WebKit trên iPhone cắt xén các trang phía sau của nhân viên khác.
+      // Khi clone DOM, cô lập duy nhất trang hiện tại tại gốc body (0, 0) và chèn style viền bảng.
+      // Loại bỏ toàn bộ các node khác trong body ảo để không bị lệch trục Y hay xung đột layout.
       onclone: (clonedDoc, clonedEl) => {
+        const style = clonedDoc.createElement("style");
+        style.textContent = `
+          table.stundenzettel-table {
+            width: 100% !important;
+            border-collapse: separate !important;
+            border-spacing: 0 !important;
+            border-top: 1.5px solid #475569 !important;
+            border-left: 1.5px solid #475569 !important;
+          }
+          table.stundenzettel-table th,
+          table.stundenzettel-table td {
+            border-right: 1.5px solid #475569 !important;
+            border-bottom: 1.5px solid #475569 !important;
+            border-top: none !important;
+            border-left: none !important;
+            box-sizing: border-box !important;
+          }
+        `;
+        clonedDoc.head.appendChild(style);
+
+        // Tách clonedEl ra an toàn
+        clonedEl.remove();
+
+        // Dọn sạch toàn bộ các phần tử khác trong body iframe
+        while (clonedDoc.body.firstChild) {
+          clonedDoc.body.removeChild(clonedDoc.body.firstChild);
+        }
+
+        // Đưa clonedEl về vị trí gốc tuyệt đối (0, 0)
         clonedDoc.body.style.margin = "0";
         clonedDoc.body.style.padding = "0";
         clonedDoc.body.style.background = "#ffffff";
-        clonedDoc.body.style.overflow = "hidden";
+        clonedDoc.body.style.width = `${elWidth}px`;
+        clonedDoc.body.style.minWidth = `${elWidth}px`;
+        clonedDoc.body.style.overflow = "visible";
 
         clonedEl.style.position = "static";
         clonedEl.style.margin = "0";
         clonedEl.style.width = `${elWidth}px`;
         clonedEl.style.maxWidth = `${elWidth}px`;
+        clonedEl.style.minWidth = `${elWidth}px`;
+        clonedEl.style.boxSizing = "border-box";
         clonedEl.style.fontFamily = FONT_STACK;
         clonedEl.style.opacity = "1";
         clonedEl.style.visibility = "visible";
 
-        const parent = clonedEl.parentElement;
-        if (parent) {
-          Array.from(parent.children).forEach((child) => {
-            if (child !== clonedEl) {
-              child.remove();
-            }
-          });
-          parent.style.position = "static";
-          parent.style.margin = "0";
-          parent.style.padding = "0";
-          parent.style.left = "0";
-          parent.style.top = "0";
-          parent.style.opacity = "1";
-        }
+        clonedDoc.body.appendChild(clonedEl);
       },
     });
 

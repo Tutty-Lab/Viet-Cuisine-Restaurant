@@ -109,13 +109,6 @@ export function StundenzettelPage({
             const rowCls = wd === "Samstag" || wd === "Sonntag" || holiday || closed ? "bg-slate-50" : "";
             const datum = format(parseIsoDate(d), "dd.MM.yyyy");
 
-            const dayCell = (
-              <Td rowSpan={Math.max(1, dienste.length)} className="align-top whitespace-nowrap">
-                <div>{datum}</div>
-                <div className="text-slate-500">{wd}</div>
-              </Td>
-            );
-
             if (dienste.length === 0) {
               const bemerkung = closed
                 ? closed.note || "Betriebsruhe"
@@ -124,7 +117,10 @@ export function StundenzettelPage({
                   : "Frei";
               return [
                 <tr key={d} className={rowCls}>
-                  {dayCell}
+                  <Td className="whitespace-nowrap">
+                    <div>{datum}</div>
+                    <div className="text-slate-500">{wd}</div>
+                  </Td>
                   <Td className="text-center" />
                   <Td className="text-center" />
                   <Td className="text-center" />
@@ -136,17 +132,31 @@ export function StundenzettelPage({
 
             return dienste.map((x, i) => (
               <tr key={`${d}#${i}`} className={rowCls}>
-                {i === 0 && dayCell}
+                <Td className="whitespace-nowrap">
+                  <div>{datum}</div>
+                  <div className="text-slate-500">
+                    {wd}
+                    {dienste.length > 1 && (
+                      <span className="text-[10px] text-slate-400 font-normal ml-1">
+                        ({i + 1})
+                      </span>
+                    )}
+                  </div>
+                </Td>
                 <Td className="text-center">{minutesToTime(x.startMinutes)}</Td>
                 <Td className="text-center">{minutesToTime(x.endMinutes)}</Td>
                 <Td className="text-center">
                   {x.pauseMinutes} Min
-                  {x.pauseStartMinutes != null && x.pauseMinutes > 0 &&
-                    <div className="text-[10px]">{minutesToTime(x.pauseStartMinutes)}–{minutesToTime(x.pauseStartMinutes + x.pauseMinutes)}</div>}
+                  {x.pauseStartMinutes != null && x.pauseMinutes > 0 && (
+                    <div className="text-[10px]">
+                      {minutesToTime(x.pauseStartMinutes)}–
+                      {minutesToTime(x.pauseStartMinutes + x.pauseMinutes)}
+                    </div>
+                  )}
                 </Td>
                 <Td className="text-center">{minutesToDecimalHours(x.paidMinutes)}</Td>
                 <Td className="text-left text-slate-500">
-                  {i === 0 && holiday ? `Feiertag: ${holiday}` : ""}
+                  {holiday ? `Feiertag: ${holiday}` : ""}
                 </Td>
               </tr>
             ));
@@ -222,15 +232,13 @@ function Td({
   children,
   className = "",
   colSpan,
-  rowSpan,
 }: {
   children?: React.ReactNode;
   className?: string;
   colSpan?: number;
-  rowSpan?: number;
 }) {
   return (
-    <td colSpan={colSpan} rowSpan={rowSpan} className={`px-2 py-[3px] ${className}`}>
+    <td colSpan={colSpan} className={`px-2 py-[2px] ${className}`}>
       {children}
     </td>
   );

@@ -69,14 +69,14 @@ body {
   width: 100% !important;
   border-collapse: separate !important;
   border-spacing: 0 !important;
-  border-top: 1px solid #94a3b8 !important;
-  border-left: 1px solid #94a3b8 !important;
+  border-top: 1.5px solid #475569 !important;
+  border-left: 1.5px solid #475569 !important;
 }
 
 .stundenzettel-table th,
 .stundenzettel-table td {
-  border-right: 1px solid #94a3b8 !important;
-  border-bottom: 1px solid #94a3b8 !important;
+  border-right: 1.5px solid #475569 !important;
+  border-bottom: 1.5px solid #475569 !important;
   border-top: none !important;
   border-left: none !important;
   box-sizing: border-box !important;
