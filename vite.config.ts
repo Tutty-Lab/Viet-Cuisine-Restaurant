@@ -46,6 +46,14 @@ export default defineConfig({
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,woff2}"],
         navigateFallback: "index.html",
+        // Neue Version SOFORT übernehmen statt erst, wenn alle Tabs zu sind.
+        // Sonst servierte der Service-Worker nach einem Deploy weiter die ALTE
+        // App aus dem Cache – Korrekturen (PDF-Tabelle, Druck-Fußzeile …) kamen
+        // beim Nutzer erst Tage später an. Mit skipWaiting/clientsClaim aktiviert
+        // sich die neue Version beim nächsten Laden und lädt einmal frisch nach.
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
       },
       devOptions: {
         enabled: false,
