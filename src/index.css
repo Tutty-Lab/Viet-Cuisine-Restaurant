@@ -52,6 +52,14 @@ body {
   pointer-events: none;
 }
 
+/* Schrift fest am Stundenzettel selbst (nicht vom <body> geerbt). So rendert
+   html2canvas nie die Serifen-Rückfallschrift, selbst wenn beim Klonen die
+   geerbte Schrift verloren geht – das war der „Zettel ohne Tabelle". */
+.stundenzettel-page {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
 /* ===================== Druck: Stundenzettel ===================== */
 @media print {
   body {

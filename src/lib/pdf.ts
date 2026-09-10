@@ -30,19 +30,29 @@ export function safeFileName(text: string): string {
  * und stößt den Download an. Die Elemente müssen sichtbar gerendert sein –
  * display:none kann html2canvas nicht aufnehmen (deshalb die Offscreen-Bühne).
  */
+/** Schriftstapel wie in der App (Tailwind-Sans). Wird beim Klonen erzwungen. */
+const FONT_STACK =
+  'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+
 export async function elementsToPdf(elements: HTMLElement[], filename: string): Promise<void> {
   if (elements.length === 0) return;
 
   // Schriften ZUERST laden. Sonst nimmt html2canvas eine Seite gelegentlich auf,
-  // bevor die Web-Schrift steht, und rendert sie in der Serifen-Rückfallschrift
+  // bevor die Schrift/Styles stehen, und rendert sie in der Serifen-Rückfallschrift
   // ganz ohne unser Layout (eine Seite „ohne Tabelle", die anderen korrekt).
   try {
     await document.fonts?.ready;
   } catch {
     // Ohne Font-Loading-API einfach weiter – dann gilt die Systemschrift.
   }
-  // Einen Frame warten, damit die Offscreen-Bühne fertig gesetzt ist.
-  await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+  // Zwei Frames + kurze Pause, damit die Offscreen-Bühne wirklich fertig
+  // gesetzt UND gemalt ist, bevor die ERSTE Seite aufgenommen wird.
+  await nextFrame();
+  await nextFrame();
+  await sleep(200);
 
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
 
@@ -63,6 +73,13 @@ export async function elementsToPdf(elements: HTMLElement[], filename: string): 
       windowHeight: elHeight,
       scrollX: 0,
       scrollY: 0,
+      // Im Klon die Schrift hart setzen: geht sonst die vom <body> geerbte
+      // Schrift verloren, rendert html2canvas Times (Serifen) – der „kaputte"
+      // Zettel. Die Bühne bekommt zusätzlich eine feste Breite.
+      onclone: (_doc, clonedEl) => {
+        clonedEl.style.fontFamily = FONT_STACK;
+        clonedEl.style.width = `${elWidth}px`;
+      },
     });
 
     // Seitenverhältnis beibehalten und in die A4-Seite einpassen.
@@ -83,6 +100,8 @@ export async function elementsToPdf(elements: HTMLElement[], filename: string): 
       width,
       height,
     );
+    // Kurz durchatmen zwischen den Seiten, damit jede Aufnahme sauber startet.
+    await sleep(30);
   }
 
   await deliver(doc.output("blob"), filename);
