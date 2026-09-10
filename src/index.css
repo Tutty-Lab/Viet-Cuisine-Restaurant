@@ -61,6 +61,17 @@ body {
 }
 
 /* ===================== Druck: Stundenzettel ===================== */
+
+/* @page MUSS auf oberster Ebene stehen, NICHT in @media print geschachtelt:
+   Safari/iOS (und einige andere) ignorieren ein verschachteltes @page und
+   drucken dann doch die Browser-Kopf-/Fußzeile (Titel, Datum, .vercel.app-URL,
+   Seitenzahl). margin: 0 nimmt dieser Zeile den Platz – ohne Rand kein Header.
+   Der Seitenrand liegt stattdessen als Innenabstand auf dem Blatt selbst. */
+@page {
+  size: A4;
+  margin: 0;
+}
+
 @media print {
   body {
     background: #fff;
@@ -73,20 +84,9 @@ body {
   }
   .stundenzettel-page {
     page-break-after: always;
-    padding: 0;
+    padding: 14mm;
   }
   .stundenzettel-page:last-child {
     page-break-after: auto;
   }
-  @page {
-    size: A4;
-    margin: 0;
-  }
-}
-
-@media print {
-  /* Kein Seitenrand auf @page => der Browser druckt KEINE Kopf-/Fusszeile mehr
-     (kein Dokumenttitel, kein Datum, keine .vercel.app-URL). Der Rand liegt
-     stattdessen als Innenabstand auf der gedruckten Seite. */
-  .stundenzettel-page { padding: 14mm !important; }
 }
