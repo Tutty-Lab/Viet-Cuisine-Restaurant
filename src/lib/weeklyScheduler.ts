@@ -214,30 +214,18 @@ function chooseWeek(
     : Math.min(limit, Math.max(1, Math.floor(target / MIN_SHIFT)));
 
   const cap = employee.isOwner ? 600 : 540;
-  const hasLongDay = eligible.some((date) => {
-    const d = days.get(date);
-    return d && !d.closed && d.blocks.some((b) => b.endMinutes - b.startMinutes >= 10 * 60);
-  });
   const base = Math.round(target / Math.max(1, preferredCount) / SLOT) * SLOT;
-  let lo = Math.max(MIN_SHIFT, hasLongDay ? base - 2 * SLOT : base - SLOT);
+  let lo = Math.max(MIN_SHIFT, base - SLOT);
   let hi = Math.min(cap, base + SLOT);
   while (hi * preferredCount < target && hi < cap) hi += SLOT;
   while (lo * preferredCount > target && lo > MIN_SHIFT) lo -= SLOT;
 
-  const normalDurations = new Set<number>();
-  if (fixed) normalDurations.add(fixed);
-  else if (target < MIN_SHIFT) normalDurations.add(target);
+  const durations = new Set<number>();
+  if (fixed) durations.add(fixed);
+  else if (target < MIN_SHIFT) durations.add(target);
   else {
     for (let duration = lo; duration <= hi; duration += SLOT) {
-      if (duration <= target) normalDurations.add(duration);
-    }
-  }
-
-  const longDayDurations = new Set(normalDurations);
-  if (!fixed && hasLongDay && employee.employmentType !== "MINIJOB" && target >= 20 * 60) {
-    const longHi = Math.min(cap, 540);
-    for (let duration = Math.min(lo, 360); duration <= longHi; duration += SLOT) {
-      if (duration <= target) longDayDurations.add(duration);
+      if (duration <= target) durations.add(duration);
     }
   }
 
@@ -263,14 +251,10 @@ function chooseWeek(
     const day = days.get(date)!;
     const occupied = existing.filter((shift) => shift.date === date);
     const weekday = effectiveWeekdayKey(date, holidays);
-    const isLongDay = day.blocks.some((b) => b.endMinutes - b.startMinutes >= 10 * 60);
-    const dayDurations = isLongDay ? longDayDurations : normalDurations;
-    const ideal = isLongDay
-      ? Math.min(cap, Math.round((target / Math.max(1, preferredCount) * 1.2) / SLOT) * SLOT)
-      : target / Math.max(1, preferredCount);
+    const ideal = target / Math.max(1, preferredCount);
     const before = dayCost(occupied, day.blocks, weekday, dailyTargets.get(date));
     const candidates: { choice: Choice; cost: number }[] = [];
-    for (const paid of dayDurations) {
+    for (const paid of durations) {
       let best: Option | undefined;
       let score = Infinity;
       for (const option of optionsFor(employee, date, paid, day.blocks, dates.length < 6, weekday)) {

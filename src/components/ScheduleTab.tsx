@@ -143,7 +143,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         const count = schedule.shifts.filter(
           (other) => other.date === s.date && other.employeeId === s.employeeId,
         ).length;
-        if (count > 1) return true;
+        if (count > 1 || s.paidMinutes > 7 * 60) return true;
       }
     }
     return false;
@@ -212,10 +212,10 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         <div className="mb-3 rounded-lg bg-blue-50 border border-blue-300 p-3 text-blue-950 text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
           <div>
             <div className="font-semibold flex items-center gap-1.5 text-blue-900">
-              <span>💡 Cập nhật mới: Ca liên tục Chủ nhật</span>
+              <span>💡 Cập nhật mới: Lịch chia đều theo hợp đồng tuần</span>
             </div>
             <p className="text-xs text-blue-800 mt-0.5">
-              Lịch hiện tại đang là bản cũ (Chủ nhật bị chia 2 ca sáng/chiều). Hãy bấm nút bên cạnh để cập nhật sang <b>ca liền</b> có tính giờ nghỉ riêng từng bạn.
+              Lịch hiện tại đang là bản cũ (Chủ nhật bị dồn ca 8h–9h hoặc chia 2 ca sáng/chiều). Hãy bấm nút bên cạnh để cập nhật sang <b>ca đều (5h–7h)</b> chuẩn theo giờ tuần.
             </p>
           </div>
           <button
@@ -226,7 +226,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
             }}
             className="whitespace-nowrap rounded bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 active:bg-blue-800 shadow"
           >
-            🔄 Cập nhật lịch liền Chủ nhật ngay
+            🔄 Cập nhật lại lịch chuẩn ngay
           </button>
         </div>
       )}

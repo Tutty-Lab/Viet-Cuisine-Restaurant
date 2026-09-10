@@ -76,8 +76,8 @@ const AUGUST: Employee[] = VOLL.filter((e) => e.id !== "ma-10");
 
 export const SEED_MONTHS: SeedMonth[] = [
   { year: 2026, month: 6, label: "Juni 2026", employees: VOLL.map((e) => ({ ...e })) },
-  { year: 2026, month: 7, label: "Juli 2026", employees: JULI.map((e) => ({ ...e })) },
-  { year: 2026, month: 8, label: "August 2026", employees: AUGUST.map((e) => ({ ...e })) },
+  { year: 2026, month: 7, label: "Juli 2026", employees: JULI.map((e) => ({ ...e })), maxPeakGaps: 4 },
+  { year: 2026, month: 8, label: "August 2026", employees: AUGUST.map((e) => ({ ...e })), maxPeakGaps: 6 },
 ];
 
 
