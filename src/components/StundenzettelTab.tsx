@@ -8,6 +8,8 @@ import { elementsToPdf, safeFileName } from "../lib/pdf";
 import { weeksOfMonth } from "../lib/weeks";
 import { datesOfMonth } from "../lib/demand";
 import { monthLabel } from "../lib/shiftOps";
+import { effectiveWeekdayKey } from "../lib/workHours";
+import { publicHolidays } from "../lib/holidays";
 
 /** Dienstplan-Ausdruck (Monat oder eine Woche), evtl. auf eine Person gefiltert. */
 type ScheduleRange = {
@@ -20,7 +22,20 @@ type ScheduleRange = {
 };
 
 export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
-  const { schedule, isLocked, markWeekPrinted, unlockMonth } = store;
+  const { schedule, isLocked, markWeekPrinted, unlockMonth, generate } = store;
+
+  const hasSplitSunday = useMemo(() => {
+    const holidays = publicHolidays(schedule.year);
+    for (const s of schedule.shifts) {
+      if (effectiveWeekdayKey(s.date, holidays) === "sunday") {
+        const count = schedule.shifts.filter(
+          (other) => other.date === s.date && other.employeeId === s.employeeId,
+        ).length;
+        if (count > 1) return true;
+      }
+    }
+    return false;
+  }, [schedule.year, schedule.shifts]);
 
   // ── Auswahl: WER (eine Person oder der ganze Laden) und WAS ─────────────
   // who: "all" = ganzer Laden, sonst eine employeeId.
@@ -244,13 +259,25 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
             </label>
 
             {/* Hành động */}
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 disabled={pdfBusy || !hasSchedule}
                 onClick={onPdf}
-                className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
+                className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40 shadow-sm"
               >
                 {pdfBusy ? `Đang tạo PDF ${pdfProgress ? `(${pdfProgress})` : "…"}` : "⬇ Xuất PDF"}
+              </button>
+              <button
+                type="button"
+                disabled={pdfBusy || schedule.employees.length === 0}
+                onClick={() => {
+                  if (isLocked) unlockMonth();
+                  generate();
+                }}
+                className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 shadow-sm"
+                title="Tạo lại lịch mới theo quy tắc ca liền Chủ nhật"
+              >
+                🔄 Tạo lại lịch
               </button>
               {pdfBusy && (
                 <span className="text-sm text-slate-500">
@@ -259,6 +286,29 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
               )}
             </div>
           </div>
+
+          {hasSplitSunday && (
+            <div className="mt-3 rounded-lg bg-blue-50 border border-blue-300 p-3 text-blue-950 text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+              <div>
+                <div className="font-semibold flex items-center gap-1.5 text-blue-900">
+                  <span>💡 Cập nhật mới: Ca liên tục Chủ nhật</span>
+                </div>
+                <p className="text-xs text-blue-800 mt-0.5">
+                  Lịch hiện tại đang là bản cũ (Chủ nhật bị chia 2 ca sáng/chiều). Hãy bấm nút bên cạnh để cập nhật sang <b>ca liền</b> có tính giờ nghỉ riêng từng bạn.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isLocked) unlockMonth();
+                  generate();
+                }}
+                className="whitespace-nowrap rounded bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 active:bg-blue-800 shadow"
+              >
+                🔄 Cập nhật lịch liền Chủ nhật ngay
+              </button>
+            </div>
+          )}
 
           {!hasSchedule && (
             <p className="mt-2 text-sm text-slate-400">

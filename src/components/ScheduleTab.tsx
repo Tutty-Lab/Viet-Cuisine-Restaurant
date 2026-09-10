@@ -136,6 +136,19 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
     return stats;
   }, [dates, schedule.shifts]);
 
+  const hasSplitSunday = useMemo(() => {
+    const holidays = publicHolidays(schedule.year);
+    for (const s of schedule.shifts) {
+      if (weekdayKeyOf(parseIsoDate(s.date)) === "sunday" || holidays.has(s.date)) {
+        const count = schedule.shifts.filter(
+          (other) => other.date === s.date && other.employeeId === s.employeeId,
+        ).length;
+        if (count > 1) return true;
+      }
+    }
+    return false;
+  }, [schedule.year, schedule.shifts]);
+
   const hasEmployees = schedule.employees.length > 0;
 
   return (
@@ -191,6 +204,29 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
             aria-label="Đóng"
           >
             ×
+          </button>
+        </div>
+      )}
+
+      {hasSplitSunday && (
+        <div className="mb-3 rounded-lg bg-blue-50 border border-blue-300 p-3 text-blue-950 text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+          <div>
+            <div className="font-semibold flex items-center gap-1.5 text-blue-900">
+              <span>💡 Cập nhật mới: Ca liên tục Chủ nhật</span>
+            </div>
+            <p className="text-xs text-blue-800 mt-0.5">
+              Lịch hiện tại đang là bản cũ (Chủ nhật bị chia 2 ca sáng/chiều). Hãy bấm nút bên cạnh để cập nhật sang <b>ca liền</b> có tính giờ nghỉ riêng từng bạn.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              generate();
+              setConfirmRegen(false);
+            }}
+            className="whitespace-nowrap rounded bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 active:bg-blue-800 shadow"
+          >
+            🔄 Cập nhật lịch liền Chủ nhật ngay
           </button>
         </div>
       )}
