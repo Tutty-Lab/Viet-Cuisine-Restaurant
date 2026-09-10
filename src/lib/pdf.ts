@@ -33,6 +33,17 @@ export function safeFileName(text: string): string {
 export async function elementsToPdf(elements: HTMLElement[], filename: string): Promise<void> {
   if (elements.length === 0) return;
 
+  // Schriften ZUERST laden. Sonst nimmt html2canvas eine Seite gelegentlich auf,
+  // bevor die Web-Schrift steht, und rendert sie in der Serifen-Rückfallschrift
+  // ganz ohne unser Layout (eine Seite „ohne Tabelle", die anderen korrekt).
+  try {
+    await document.fonts?.ready;
+  } catch {
+    // Ohne Font-Loading-API einfach weiter – dann gilt die Systemschrift.
+  }
+  // Einen Frame warten, damit die Offscreen-Bühne fertig gesetzt ist.
+  await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
 
   for (let i = 0; i < elements.length; i++) {

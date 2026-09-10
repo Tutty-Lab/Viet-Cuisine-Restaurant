@@ -93,6 +93,9 @@ export function useSchedule() {
     return persisted?.originalShifts ?? [];
   });
   const [genError, setGenError] = useState<string | null>(null);
+  // Zählt jede ERFOLGREICHE Generierung hoch – die Oberfläche zeigt daraufhin
+  // eine kurze Erfolgsmeldung („Đã tạo lịch").
+  const [genStamp, setGenStamp] = useState(0);
   // Jeder Klick auf "Tạo lịch" soll einen ANDEREN gültigen Plan liefern. Der
   // Scheduler ist deterministisch: gleicher Seed => gleicher Plan. Ohne diesen
   // Zähler kam bei unveränderten Mitarbeitern jedes Mal derselbe Plan heraus –
@@ -359,6 +362,7 @@ export function useSchedule() {
       });
       setSchedule((s) => ({ ...s, shifts, lockedAt: undefined, printedWeeks: [] }));
       setOriginalShifts(shifts.map((sh) => ({ ...sh })));
+      setGenStamp((n) => n + 1);
     } catch (err) {
       setGenError(err instanceof Error ? err.message : String(err));
     }
@@ -488,6 +492,7 @@ export function useSchedule() {
     markWeekPrinted,
     unlockMonth,
     genError,
+    genStamp,
     hasOriginal: originalShifts.length > 0,
     updateMeta,
     addEmployee,

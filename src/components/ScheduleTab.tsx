@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Shift } from "../types";
 import {
@@ -35,11 +35,28 @@ function cellClass(shift: Shift | undefined): string {
 export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   // Drucken (Monat/Woche) und Entsperren liegen im Tab „Bảng chấm công" –
   // dort sitzt alles, was Papier erzeugt.
-  const { schedule, validation, generate, genError, isLocked, openDates } = store;
+  const { schedule, validation, generate, genError, genStamp, isLocked, openDates } = store;
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
   // Zweiter Klick, um einen gesperrten (gedruckten) Monat neu zu erzeugen –
   // ohne native Rückfrage, die manche In-App-Browser verschlucken.
   const [confirmRegen, setConfirmRegen] = useState(false);
+  // Kurze Erfolgsmeldung nach dem Erzeugen. genStamp steigt bei jedem
+  // erfolgreichen Lauf; der Effekt liest DANACH die (frische) Prüfung aus.
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (genStamp === 0) return;
+    const fehler = validation.errors.filter((e) => e.severity !== "warning").length;
+    const warn = validation.errors.filter((e) => e.severity === "warning").length;
+    setToast(
+      fehler > 0
+        ? `Đã tạo lịch — nhưng còn ${fehler} lỗi, xem chi tiết ở phần trạng thái.`
+        : warn > 0
+          ? `✓ Đã tạo lịch mới (còn ${warn} cảnh báo thiếu giờ — bấm (i) để xem).`
+          : "✓ Đã tạo lịch mới — hợp lệ, giờ chia đều cho mọi người.",
+    );
+    const t = window.setTimeout(() => setToast(null), 5000);
+    return () => window.clearTimeout(t);
+  }, [genStamp]); // eslint-disable-line react-hooks/exhaustive-deps
   // Mặc định: điện thoại -> xem theo ngày, màn lớn -> bảng tháng.
   const [view, setView] = useState<"grid" | "day" | "week" | "coverage">(() =>
     typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches ? "day" : "grid",
@@ -154,6 +171,29 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         )}
         <span className="ml-auto text-sm text-slate-500">{monthLabel(schedule.year, schedule.month)}</span>
       </div>
+
+      {/* Erfolgsmeldung nach „Tạo lịch". Verschwindet nach ein paar Sekunden;
+          Details zu Warnungen/Fehlern stehen aufklappbar oben im Dashboard. */}
+      {toast && (
+        <div
+          role="status"
+          className={`mb-3 flex items-start gap-2 rounded border px-3 py-2 text-sm ${
+            toast.startsWith("✓")
+              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+              : "bg-amber-50 border-amber-200 text-amber-900"
+          }`}
+        >
+          <span className="flex-1">{toast}</span>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="shrink-0 opacity-60 hover:opacity-100"
+            aria-label="Đóng"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Rückfrage vor dem Neu-Erzeugen eines gedruckten Monats. */}
       {isLocked && confirmRegen && (
