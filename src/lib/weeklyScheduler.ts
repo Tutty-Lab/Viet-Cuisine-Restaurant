@@ -185,20 +185,31 @@ function chooseWeek(
   if (target <= 0 || limit <= 0) return [];
   const fixed = employee.fixedShift ? fixedPaid(employee.fixedShift) : 0;
   if (employee.fixedShift && fixed === 0) return [];
+  // So VIELE Arbeitstage wie möglich, damit die Stunden dünn und gleich auf die
+  // Woche verteilt werden (39 h → 6 Tage × 6,5 h, 33 h → 6 Tage × 5,5 h). Nur wenn
+  // der Vertrag zu klein ist, um jeden Tag die Mindestschicht (3 h) zu füllen,
+  // werden es weniger Tage (Minijob 10 h → ~3 Tage).
   const preferredCount = fixed
     ? Math.min(limit, Math.floor(target / fixed))
-    : Math.min(limit, Math.max(1, Math.floor(target / MIN_SHIFT)), employee.employmentType === "VOLLZEIT" ? 6 : Math.max(1, Math.round(target / 390)));
+    : Math.min(limit, Math.max(1, Math.floor(target / MIN_SHIFT)));
   const durations = new Set<number>();
   if (fixed) durations.add(fixed);
   else if (target < MIN_SHIFT) durations.add(target);
   else {
-    // Gleiche Stunden je Tag: die Tageslänge bleibt in einem engen Band um das
-    // Ideal (target / Arbeitstage). 39 h / 6 Tage → 6,5 h, Band 5,5–7,5 h; so
-    // wird jeder Arbeitstag ähnlich lang statt 3 h an einem und 9 h am nächsten.
+    // Gleiche Stunden je Tag: die Tageslänge bleibt in einem ENGEN Band (±30 min)
+    // um das Ideal (target / Arbeitstage). 39 h / 6 Tage → 6,5 h → nur 6/6,5/7 h,
+    // 33 h → 5,5 h → 5/5,5/6 h. Das erzwingt zugleich, dass alle Arbeitstage
+    // genutzt werden (5 Tage × 7 h = 35 h < 39 h, also nicht auf weniger Tage
+    // stauchbar) statt einen Tag frei zu nehmen und die Reste zu 9-h-Tagen zu ballen.
     const cap = employee.isOwner ? 600 : 540;
     const base = Math.round(target / Math.max(1, preferredCount) / SLOT) * SLOT;
-    for (let step = -3; step <= 3; step++) {
-      const duration = Math.min(cap, Math.max(MIN_SHIFT, base + step * SLOT));
+    let lo = Math.max(MIN_SHIFT, base - SLOT);
+    let hi = Math.min(cap, base + SLOT);
+    // Nur so weit aufweiten, wie es das Wochen-Soll über die Arbeitstage
+    // überhaupt braucht (angebrochene Wochen, Eintritt mitten im Monat, Overrides).
+    while (hi * preferredCount < target && hi < cap) hi += SLOT;
+    while (lo * preferredCount > target && lo > MIN_SHIFT) lo -= SLOT;
+    for (let duration = lo; duration <= hi; duration += SLOT) {
       if (duration <= target) durations.add(duration);
     }
   }

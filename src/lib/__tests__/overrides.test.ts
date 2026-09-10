@@ -73,6 +73,10 @@ describe("Ausnahmen je Datum (Overrides)", () => {
     const openDays = openDaysWith(2026, 8, overrides);
     const result = validateSchedule(SAMPLE_EMPLOYEES, shifts, 2026, openDays);
     expect(result.errors.filter((e) => e.severity !== "warning")).toEqual([]);
-    expect(Math.abs(shifts.reduce((a, s) => a + s.paidMinutes, 0) - sollTotal(openDays))).toBeLessThanOrEqual(SAMPLE_EMPLOYEES.length * 15);
+    // Gleiche Tagesstunden liegen jetzt in einem engen Band (6–7 h bei 39 h). Ein
+    // von Hand geöffneter HALBER Tag (max. 5,5 h) passt nicht in dieses Band, also
+    // bleibt dort ein Rest ungeplant (~0,7 h/Person, als Warnung gemeldet) statt ihn
+    // zu 9-h-Tagen anderswo zu ballen. Im normalen Monat wird 100 % gefüllt.
+    expect(Math.abs(shifts.reduce((a, s) => a + s.paidMinutes, 0) - sollTotal(openDays))).toBeLessThanOrEqual(SAMPLE_EMPLOYEES.length * 45);
   });
 });
