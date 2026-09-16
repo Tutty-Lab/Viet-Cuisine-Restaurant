@@ -146,7 +146,8 @@ function BlockRow({
 export function SettingsTab({ store }: { store: UseScheduleReturn }) {
   const { schedule, updateMeta, upsertOverride, removeOverride, changePassword, hasOwnPassword } =
     store;
-  const years = Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - 1 + i);
+  // Feste Auswahl 2026–2030 (5 Jahre), unabhängig vom aktuellen Datum.
+  const years = Array.from({ length: 5 }, (_, i) => 2026 + i);
 
   // ---- Ngày đặc biệt (Ausnahmen) ----
   const monthDates = useMemo(
