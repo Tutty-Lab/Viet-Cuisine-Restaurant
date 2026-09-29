@@ -123,12 +123,15 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
 
   // Tổng theo ngày cho các dòng chân bảng.
   const dayStats = useMemo(() => {
-    const stats = new Map<string, { count: number; total: number; early: number; late: number }>();
-    for (const d of dates) stats.set(d, { count: 0, total: 0, early: 0, late: 0 });
+    const stats = new Map<string, { people: Set<string>; shifts: number; total: number; early: number; late: number }>();
+    for (const d of dates) stats.set(d, { people: new Set(), shifts: 0, total: 0, early: 0, late: 0 });
     for (const s of schedule.shifts) {
       const st = stats.get(s.date);
       if (!st) continue;
-      st.count += 1;
+      // „Số nhân viên" zählt PERSONEN – wer mittags und abends arbeitet, ist
+      // eine Person mit zwei Diensten (Zeile „Số ca" darunter).
+      st.people.add(s.employeeId);
+      st.shifts += 1;
       st.total += s.paidMinutes;
       if (s.shiftType === "EARLY") st.early += 1;
       else st.late += 1; // LATE hoặc CUSTOM tính là ca tối
@@ -498,7 +501,8 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
               })}
             </tbody>
             <tfoot>
-              <SummaryRow label="Số nhân viên" dates={gridDates} value={(d) => String(dayStats.get(d)!.count)} />
+              <SummaryRow label="Số nhân viên" dates={gridDates} value={(d) => String(dayStats.get(d)!.people.size)} />
+              <SummaryRow label="Số ca" dates={gridDates} value={(d) => String(dayStats.get(d)!.shifts)} />
               <SummaryRow
                 label="Tổng giờ"
                 dates={gridDates}

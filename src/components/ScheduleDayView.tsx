@@ -62,13 +62,19 @@ export function ScheduleDayView({
     () => schedule.shifts.filter((s) => s.date === selected),
     [schedule.shifts, selected],
   );
-  const shiftByEmp = useMemo(
-    () => new Map(shiftsOfDay.map((s) => [s.employeeId, s] as const)),
-    [shiftsOfDay],
-  );
+  // Ein Tag kann zwei Dienste je Person haben (mittags und abends) – deshalb
+  // eine LISTE je Mitarbeiter, nicht ein einzelner Dienst.
+  const shiftsByEmp = useMemo(() => {
+    const map = new Map<string, Shift[]>();
+    for (const shift of shiftsOfDay) {
+      map.set(shift.employeeId, [...(map.get(shift.employeeId) ?? []), shift]);
+    }
+    for (const list of map.values()) list.sort((a, b) => a.startMinutes - b.startMinutes);
+    return map;
+  }, [shiftsOfDay]);
 
-  const working = schedule.employees.filter((e) => shiftByEmp.has(e.id));
-  const free = schedule.employees.filter((e) => !shiftByEmp.has(e.id));
+  const working = schedule.employees.filter((e) => shiftsByEmp.has(e.id));
+  const free = schedule.employees.filter((e) => !shiftsByEmp.has(e.id));
 
   const totalMin = shiftsOfDay.reduce((a, s) => a + s.paidMinutes, 0);
   const earlyCount = shiftsOfDay.filter((s) => s.shiftType === "EARLY").length;
@@ -138,7 +144,7 @@ export function ScheduleDayView({
 
       {/* Tóm tắt ngày */}
       <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-        <Summary label="Số NV" value={String(working.length)} />
+        <Summary label="Số NV" value={`${working.length}${shiftsOfDay.length > working.length ? ` (${shiftsOfDay.length} ca)` : ""}`} />
         <Summary label="Tổng giờ" value={minutesToShortHours(totalMin)} />
         <Summary label="Sáng / Tối" value={`${earlyCount} / ${lateCount}`} />
       </div>
@@ -151,30 +157,39 @@ export function ScheduleDayView({
           </div>
         ) : (
           working.map((emp) => {
-            const s = shiftByEmp.get(emp.id) as Shift;
-            const isEarly = s.shiftType === "EARLY";
+            const own = shiftsByEmp.get(emp.id) as Shift[];
+            const first = own[0];
+            const paid = own.reduce((sum, shift) => sum + shift.paidMinutes, 0);
             return (
               <button
                 key={emp.id}
                 onClick={() => onEdit(emp.id, selected)}
                 className={`w-full flex items-center gap-3 rounded-lg border p-3 text-left ${
-                  isEarly ? "shift-early" : "shift-late"
-                } ${!s.generated ? "shift-custom" : ""}`}
+                  first.shiftType === "EARLY" ? "shift-early" : "shift-late"
+                } ${own.some((shift) => !shift.generated) ? "shift-custom" : ""}`}
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{emp.name}</div>
                   <div className="text-xs opacity-80">
                     {employmentLabelVi(emp.employmentType)} ·{" "}
-                    {isEarly ? "Ca sáng" : "Ca tối"}
+                    {own.length > 1
+                      ? `Ca gãy · ${minutesToShortHours(paid)}`
+                      : first.shiftType === "EARLY"
+                        ? "Ca sáng"
+                        : "Ca tối"}
                   </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <div className="font-semibold">
-                    {minutesToTime(s.startMinutes)}–{minutesToTime(s.endMinutes)}
-                  </div>
-                  <div className="text-xs opacity-80">
-                    {minutesToShortHours(s.paidMinutes)} · <PauseLabel shift={s} />
-                  </div>
+                <div className="text-right shrink-0 space-y-0.5">
+                  {own.map((shift) => (
+                    <div key={shift.id}>
+                      <div className="font-semibold">
+                        {minutesToTime(shift.startMinutes)}–{minutesToTime(shift.endMinutes)}
+                      </div>
+                      <div className="text-xs opacity-80">
+                        {minutesToShortHours(shift.paidMinutes)} · <PauseLabel shift={shift} />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </button>
             );
