@@ -241,7 +241,7 @@ export function EmployeesTab({ store, allStores }: { store: UseScheduleReturn; a
       <p className="text-xs text-slate-500 mb-4">
         Hợp đồng nhập theo <b>tháng</b> (hoặc theo tuần nếu người đó ký theo tuần). Giờ được chia cho các
         tuần rồi cho từng ngày theo hệ số ngày đông. Tháng này quán mở <b>{openDays}</b> ngày, mỗi người tối
-        đa 6 ngày liên tiếp và 8 giờ công mỗi ngày. Bấm vào một người để sửa.
+        đa 6 ngày liên tiếp và 9 giờ công mỗi ngày. Bấm vào một người để sửa.
       </p>
 
       {locked && (
@@ -767,7 +767,7 @@ function EmployeeSheet({
 
                   <SheetSection title="Luật riêng (mềm – xếp theo khi được)">
                     <div>
-                      <FieldLabel hint="3–8 h · bỏ trống = mặc định">Độ dài ca</FieldLabel>
+                      <FieldLabel hint="3–9 h · bỏ trống = mặc định">Độ dài ca</FieldLabel>
                       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                         <HoursInput placeholder="từ" value={d.shiftMin} onChange={(v) => set("shiftMin", v)} />
                         <span className="text-slate-400">–</span>
@@ -775,7 +775,7 @@ function EmployeeSheet({
                       </div>
                       {shiftRangeOff && (
                         <p className="mt-1 text-xs text-amber-700">
-                          Nhập cả hai ô, trong khoảng 3–8 h (luật quán). Ngoài khoảng đó app tự làm tròn vào 3–8 h.
+                          Nhập cả hai ô, trong khoảng 3–9 h (luật quán). Ngoài khoảng đó app tự làm tròn vào 3–9 h.
                         </p>
                       )}
                     </div>

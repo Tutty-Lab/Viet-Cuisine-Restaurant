@@ -34,7 +34,8 @@ function addDaysIso(isoDate: string, days: number): string {
 export const OPEN_DAYS_PER_WEEK = 6;
 export const SCHEDULE_SLOT_MINUTES = 30;
 /** Höchste bezahlte Zeit je Tag (§ 3 ArbZG, siehe validation.ts). */
-export const MAX_PAID_MINUTES_PER_DAY = 8 * 60;
+/** Viet Cuisine: höchstens 9 bezahlte Stunden je Tag (wie in der alten App). */
+export const MAX_PAID_MINUTES_PER_DAY = 9 * 60;
 
 /** Extra opening days in a calendar week do not increase a weekly contract. */
 export function contractOpenDays(openDaysByWeek: readonly number[]): number {

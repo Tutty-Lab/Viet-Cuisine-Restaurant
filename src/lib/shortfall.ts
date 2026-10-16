@@ -8,8 +8,9 @@ import type { Employee, Shift } from "../types";
 import { isEmployedOn, worksOnWeekday } from "./availability";
 import { weekStartOf } from "./weeks";
 import { minutesToShortHours } from "./time";
+import { MAX_PAID_MINUTES_PER_DAY } from "./contract";
 
-const MAX_DAY = 8 * 60;
+const MAX_DAY = MAX_PAID_MINUTES_PER_DAY;
 
 export type OtherStorePlan = { shortName: string; employees: readonly Employee[]; shifts: readonly Shift[] };
 
@@ -71,7 +72,7 @@ export function explainShortfall(
   reasons.push(
     `Còn ${free.length} ngày trống${free.length > 0 && free.length <= 10 ? ` (${free.map(ddmm).join(", ")})` : ""}` +
       (usableDays < free.length ? `, nhưng tối đa ${weekLimit} ngày/tuần nên dùng được ${usableDays} ngày` : "") +
-      `. Mỗi ngày tối đa 8 giờ → tối đa ${minutesToShortHours(capacity)}, hợp đồng cần ${minutesToShortHours(targetMinutes)}.`,
+      `. Mỗi ngày tối đa ${MAX_DAY / 60} giờ → tối đa ${minutesToShortHours(capacity)}, hợp đồng cần ${minutesToShortHours(targetMinutes)}.`,
   );
 
   if (capacity >= targetMinutes) {

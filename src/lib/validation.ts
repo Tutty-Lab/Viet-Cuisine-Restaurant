@@ -3,7 +3,7 @@
 // ============================================================================
 
 import type { Employee, Shift } from "../types";
-import { monthlyTargetMinutes, monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES } from "./contract";
+import { monthlyTargetMinutes, monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES, MAX_PAID_MINUTES_PER_DAY } from "./contract";
 import { calculatePause, minutesToShortHours } from "./time";
 import { maxConsecutiveRun } from "./consecutive";
 import { weekStartOf } from "./weeks";
@@ -53,7 +53,7 @@ export type ValidationResult = {
  * Arbeitszeitgesetzes (§ 3 ArbZG: bis zu 10 Stunden, wenn im Halbjahr auf 8
  * ausgeglichen).
  */
-const MAX_PAID_MINUTES = 8 * 60;
+const MAX_PAID_MINUTES = MAX_PAID_MINUTES_PER_DAY;
 const MAX_CONSECUTIVE_DAYS = 6;
 
 export function validateSchedule(

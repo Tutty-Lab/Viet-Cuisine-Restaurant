@@ -1,6 +1,6 @@
 import type { Employee, PreferredWindow, Shift } from "../types";
 import { DAY_WEIGHTS, datesOfMonth, parseIsoDate, weekdayKeyOf, type WeekdayKey } from "./demand";
-import { monthlyTargetMinutesFor, weeklyBudgetMinutes, weeklyTargetMinutes } from "./contract";
+import { monthlyTargetMinutesFor, weeklyBudgetMinutes, weeklyTargetMinutes, MAX_PAID_MINUTES_PER_DAY } from "./contract";
 import { calculatePause } from "./time";
 import { isEmployedOn, mayWorkOn } from "./availability";
 import { consecutiveRunLengthWith } from "./consecutive";
@@ -60,8 +60,13 @@ type Day = ReturnType<typeof resolveDay>;
 
 const SLOT = 30;
 const MIN_SHIFT = 180;
-/** Höchste bezahlte Zeit je Tag: 8 h (Vorgabe des Betriebs, siehe validation.ts). */
-const MAX_PAID = 480;
+/** Höchste bezahlte Zeit je Tag (Vorgabe des Betriebs, contract.ts): 9 h. */
+const MAX_PAID = MAX_PAID_MINUTES_PER_DAY;
+/**
+ * Geplant wird mit höchstens 8 h je Tag; die 9. Stunde nur beim Nachschlag
+ * (topUpShortfalls), wenn sonst Vertragsstunden fehlen – wie in der alten App.
+ */
+const PLAN_PAID = Math.min(MAX_PAID, 8 * 60);
 /** Cost per (person deviation)² per 30-minute slot against the demand curve. */
 const SLOT_DEVIATION_COST = 300;
 /** Small preference for one continuous shift over a split shift on the same day. */
@@ -315,8 +320,8 @@ function chooseWeekWith(
   // längere und Normaltage kürzere Dienste bekommen können.
   const base = Math.round(target / Math.max(1, preferredCount) / SLOT) * SLOT;
   let lo = Math.max(MIN_SHIFT, base - 3 * SLOT);
-  let hi = Math.min(MAX_PAID, base + 3 * SLOT);
-  while (hi * preferredCount < target && hi < MAX_PAID) hi += SLOT;
+  let hi = Math.min(PLAN_PAID, base + 3 * SLOT);
+  while (hi * preferredCount < target && hi < PLAN_PAID) hi += SLOT;
   while (lo * preferredCount > target && lo > MIN_SHIFT) lo -= SLOT;
   // Mehr Wochensoll als die freien Tage fassen (z. B. Minijob im zweiten Laden,
   // der nur einen Tag je Woche frei hat): ohne diese Klammer läge lo über hi,
@@ -369,11 +374,11 @@ function chooseWeekWith(
     const before = dayCost(occupied, day.blocks, weekday, dailyTargets.get(date), ctx);
     const candidates: { choice: Choice; cost: number }[] = [];
     // Continuous days (CN/lễ, one long block): a single shift always spans the
-    // afternoon unless it is short. Allow the full 3–9 h range there and a soft
+    // afternoon unless it is short. Allow the full 3–8 h range there and a soft
     // length preference, so lunch-only and evening-only shifts can shape both peaks.
     const continuous = day.blocks.length === 1 && !fixed && !own && target >= MIN_SHIFT;
     const dayDurations = continuous
-      ? Array.from({ length: Math.floor((Math.min(MAX_PAID, target) - MIN_SHIFT) / SLOT) + 1 }, (_, i) => MIN_SHIFT + i * SLOT)
+      ? Array.from({ length: Math.floor((Math.min(PLAN_PAID, target) - MIN_SHIFT) / SLOT) + 1 }, (_, i) => MIN_SHIFT + i * SLOT)
       : [...durations];
     const lengthCost = continuous ? 40 : 300;
     for (const paid of dayDurations) {

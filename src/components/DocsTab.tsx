@@ -13,6 +13,7 @@ import { DEFAULT_WORK_HOURS } from "../lib/workHours";
 import { RULES } from "../lib/rules";
 import type { StoreConfig } from "../lib/stores";
 import { SHIFT_LENGTHS } from "../lib/shifts";
+import { MAX_PAID_MINUTES_PER_DAY } from "../lib/contract";
 import { calculatePause, minutesToTime, presenceFromPaid } from "../lib/time";
 
 const WEEKDAY_ORDER: WeekdayKey[] = [
@@ -177,7 +178,7 @@ export function DocsTab({ stores }: { stores: StoreConfig[] }) {
         <ul className="list-disc space-y-1 pl-5">
           <li><b>Giờ mở:</b> Thứ Hai nghỉ (trùng ngày lễ vẫn nghỉ; muốn mở thì đặt „giờ riêng" ở Cài đặt). <b>T3–T7:</b> {minutesToTime(DEFAULT_WORK_HOURS.perWeekday.tuesday[0].startMinutes)}–{minutesToTime(LUNCH_END)} và {minutesToTime(DEFAULT_WORK_HOURS.perWeekday.tuesday[1].startMinutes)}–22:30, giữa hai khung quán đóng. <b>CN và ngày lễ:</b> 10:30–22:00 liền.</li>
           <li><b>Nghỉ phép:</b> ngày đã chọn ở tab Nhân viên không xếp ca; giờ định mức giữ nguyên. Phép năm: Vollzeit 24, Teilzeit 16, Minijob 8 ngày – vượt chỉ cảnh báo.</li>
-          <li><b>Luật giờ làm:</b> tối đa <b>8 giờ công/ngày</b> (mức quán tự đặt, thấp hơn luật 10h); tối đa <b>6 ngày liên tiếp</b>. Trên 6h công nghỉ <b>30′</b>, trên 8h nghỉ <b>60′</b> – giờ nghỉ có mốc cụ thể, bắt đầu sau ít nhất 1h vào ca.</li>
+          <li><b>Luật giờ làm:</b> tối đa <b>9 giờ công/ngày</b> (mức quán tự đặt, thấp hơn luật 10h); tối đa <b>6 ngày liên tiếp</b>. Trên 6h công nghỉ <b>30′</b>, trên 8h nghỉ <b>60′</b> – giờ nghỉ có mốc cụ thể, bắt đầu sau ít nhất 1h vào ca.</li>
           <li><b>Hợp đồng là giới hạn cứng:</b> các quán ký theo <b>giờ mỗi tháng</b> (xem tab Nhân viên). Không ai bị xếp vượt hợp đồng; thiếu thì báo cảnh báo vàng.</li>
           {doubleJobs.length > 0 && (
             <li>
@@ -191,7 +192,7 @@ export function DocsTab({ stores }: { stores: StoreConfig[] }) {
           {holidayDuty && (
             <li><b>{duty?.store.shortName}: ngày lễ phải có {holidayDuty.name} trong ca</b> — bật ở tab Nhân viên (ô „Trực ngày lễ"), thuật toán giữ chỗ cho người đó trước rồi mới chia phần còn lại. Quán còn lại không có yêu cầu này.</li>
           )}
-          <li><b>Ngày làm {SHIFT_LENGTHS[0]}–{SHIFT_LENGTHS[SHIFT_LENGTHS.length - 1]} giờ công.</b> Mỗi ca nằm gọn trong một khung mở, nên T3–T7 ca trưa dài nhất 4h (khung 10:30–14:30). Một người có thể làm cả trưa lẫn tối trong ngày; khi chia hai ca như vậy, phần ngắn hơn ít nhất <b>2 giờ</b>. Ca đứng một mình không bao giờ dưới 3 giờ.</li>
+          <li><b>Ngày làm {SHIFT_LENGTHS[0]}–{MAX_PAID_MINUTES_PER_DAY / 60} giờ công.</b> Mỗi ca nằm gọn trong một khung mở, nên T3–T7 ca trưa dài nhất 4h (khung 10:30–14:30). Một người có thể làm cả trưa lẫn tối trong ngày; khi chia hai ca như vậy, phần ngắn hơn ít nhất <b>2 giờ</b>. Ca đứng một mình không bao giờ dưới 3 giờ.</li>
         </ul>
       </Section>
 
@@ -230,7 +231,7 @@ export function DocsTab({ stores }: { stores: StoreConfig[] }) {
         <ul className="list-disc space-y-1 pl-5">
           <li>Hợp đồng <b>theo tháng</b> được chia cho các tuần theo số ngày mở, rồi mới chia cho từng ngày theo hệ số.</li>
           <li>Hệ số 1,5 là <b>mục tiêu</b>, không phải tỷ lệ bảo đảm: tổng giờ hợp đồng là cố định, nên ngày đông
-          nhận nhiều giờ hơn trong giới hạn hợp đồng và 8h/ngày.</li>
+          nhận nhiều giờ hơn trong giới hạn hợp đồng và 9h/ngày.</li>
           <li>Mọi giờ đều nằm trên <b>mốc 30 phút</b>. Phần lẻ sau khi làm tròn được <b>bù vào cuối</b>: một ca dài thêm 30′ ở chỗ ít ảnh hưởng nhất. Tuần lẻ ở đầu/cuối tháng nếu chỉ còn dưới 3 giờ thì phần đó <b>dồn sang tuần kề</b>, không tạo ca lẻ 1–2 giờ.</li>
         </ul>
       </Section>
@@ -269,7 +270,7 @@ export function DocsTab({ stores }: { stores: StoreConfig[] }) {
           <li><b>Giờ công mỗi ngày</b> theo công thức mục 2, rồi <b>số người mục tiêu mỗi 30′</b> theo đường nhu cầu mục 4.</li>
           <li><b>Chọn ngày và độ dài ca cho từng người trong tuần</b> sao cho đúng giờ tuần; ai phải trực ngày lễ thì ngày đó được giữ trước.</li>
           <li><b>Đặt ca</b> ở mọi mốc 30′ trong khung. Chấm điểm theo thứ tự nặng → nhẹ: thiếu/thừa người so với khung mục 3 → lệch số người mục tiêu (bình phương) → lệch giờ công ngày → ca gãy (phạt nhẹ).</li>
-          <li><b>Bù giờ lẻ:</b> phần còn thiếu do làm tròn được thêm 30′ vào ca ít ảnh hưởng nhất, không vượt 8h/ngày và không vượt hợp đồng.</li>
+          <li><b>Bù giờ lẻ:</b> phần còn thiếu do làm tròn được thêm 30′ vào ca ít ảnh hưởng nhất, không vượt 9h/ngày và không vượt hợp đồng.</li>
           <li><b>Tinh chỉnh từng ngày:</b> dời giờ vào/ra và dời <b>giờ nghỉ</b> theo số người thực tế.</li>
           <li><b>Kiểm tra</b>: luật, hợp đồng, ca, nghỉ, trực ngày lễ và độ phủ; lỗi đỏ chặn, cảnh báo vàng không chặn xuất PDF.</li>
         </ol>
@@ -299,7 +300,7 @@ export function DocsTab({ stores }: { stores: StoreConfig[] }) {
         <ul className="list-disc space-y-1 pl-5">
           <li>Ngày lễ theo <b>Bayern</b> (Berg, Oberpfalz): có Heilige Drei Könige, Fronleichnam, Mariä Himmelfahrt và Allerheiligen.</li>
           <li>Ngày đặc biệt (override) có thể đóng cả ngày hoặc đặt khung giờ riêng; bấm <b>Tạo lịch</b> lại sau khi thêm.</li>
-          <li>Sửa tay một ca vẫn phải giữ hợp đồng, tối đa 8 giờ/ngày, 6 ngày liên tiếp, khung ca và giờ nghỉ – ca sửa tay được đánh dấu <b>Đã sửa tay</b>.</li>
+          <li>Sửa tay một ca vẫn phải giữ hợp đồng, tối đa 9 giờ/ngày, 6 ngày liên tiếp, khung ca và giờ nghỉ – ca sửa tay được đánh dấu <b>Đã sửa tay</b>.</li>
           <li>Báo cáo Độ phủ ghi <b>số người thực tế / yêu cầu</b> từng 30′; thiếu hoặc vượt khung hiện viền đỏ.</li>
         </ul>
       </Section>

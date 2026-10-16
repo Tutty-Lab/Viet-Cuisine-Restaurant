@@ -12,7 +12,7 @@ const DAY_ORDER: WeekdayKey[] = ["monday", "tuesday", "wednesday", "thursday", "
 
 /** Kürzeste und längste bezahlte Zeit je Tag, die der Planer überhaupt kennt. */
 const MIN_DAY = 180;
-const MAX_DAY = 480;
+const MAX_DAY = 540; // Viet Cuisine: bis 9 h je Tag
 
 /** Nur gültige Fenster (mind. ein Tag, Ende nach Beginn). */
 export function preferredWindowsOf(employee: Employee): PreferredWindow[] {
@@ -37,7 +37,7 @@ export function minutesOutsidePreferred(windows: readonly PreferredWindow[], wee
 
 /**
  * „Độ dài ca" in Minuten, auf das 30-Minuten-Raster und die Grenzen des
- * Betriebs (3–8 h je Tag) gebracht. null = nicht gesetzt.
+ * Betriebs (3–9 h je Tag) gebracht. null = nicht gesetzt.
  */
 export function ownShiftRangeMinutes(employee: Employee): { min: number; max: number } | null {
   const r = employee.shiftHours;
