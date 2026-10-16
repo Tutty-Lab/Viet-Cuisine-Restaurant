@@ -5,49 +5,51 @@ import { maxConsecutiveRun } from "../consecutive";
 import { calculatePause } from "../time";
 import { DEFAULT_WORK_HOURS, resolveDay, type OverrideMap } from "../workHours";
 import { publicHolidays } from "../holidays";
+import { datesOfMonth } from "../demand";
+import { monthlyTargetMinutesFor } from "../contract";
 import { splitTargetHours } from "../splitTargetHours";
 import type { Employee, Shift } from "../../types";
+import { vietCuisineEmployees } from "../sampleData";
 
-const mk = (id: string, type: Employee["employmentType"], hours: number): Employee => ({
+const mk = (id: string, type: Employee["employmentType"], weeklyHours: number): Employee => ({
   id,
   name: id,
   employmentType: type,
-  targetMinutes: hours * 60,
+  targetMinutes: 0,
+  weeklyHours,
 });
 
-/** Prüft alle harten Regeln, die der Scheduler laut Kopfkommentar zusichert. */
+const openDatesOf = (year: number, month: number, overrides: OverrideMap = {}): string[] => {
+  const holidays = publicHolidays(year);
+  return datesOfMonth(year, month).filter((d) => !resolveDay(DEFAULT_WORK_HOURS, d, holidays, overrides).closed);
+};
+
+/** Prüft alle harten Regeln, die der Scheduler zusichert. */
 function audit(
   shifts: Shift[],
   employees: Employee[],
   year: number,
+  month: number,
   overrides: OverrideMap = {},
-  /**
-   * true = ein FEHLBETRAG ist erlaubt (der Monat gibt das Soll nicht her).
-   * Zu VIEL verteilte Zeit bleibt in jedem Fall ein Fehler.
-   *
-   * Seit der Scheduler bei zu hohem Soll keinen Abbruch mehr macht, sondern
-   * den bestmöglichen Plan liefert, ist "nicht ganz erreicht" ein zulässiges
-   * Ergebnis – gemeldet wird es als Warnung in validateSchedule.
-   */
+  /** true = ein FEHLBETRAG ist erlaubt (der Monat gibt das Soll nicht her). */
   fehlbetragErlaubt = false,
 ) {
   const problems: string[] = [];
   const holidays = publicHolidays(year);
+  const openDates = openDatesOf(year, month, overrides);
 
-  // 1. Monats-Soll exakt getroffen
+  // 1. Monats-Soll im 30-Minuten-Raster getroffen (Randwochen: < 30 min Abweichung).
   for (const e of employees) {
     const sum = shifts.filter((s) => s.employeeId === e.id).reduce((a, s) => a + s.paidMinutes, 0);
-    if (sum > e.targetMinutes) {
-      problems.push(`${e.id}: xếp quá ${sum / 60}h / ${e.targetMinutes / 60}h`);
-    } else if (sum < e.targetMinutes && !fehlbetragErlaubt) {
-      problems.push(`${e.id}: ${sum / 60}h thay vì ${e.targetMinutes / 60}h`);
+    const soll = monthlyTargetMinutesFor(e, openDates);
+    if (sum - soll >= 30) {
+      problems.push(`${e.id}: xếp quá ${sum / 60}h / ${soll / 60}h`);
+    } else if (soll - sum >= 30 && !fehlbetragErlaubt) {
+      problems.push(`${e.id}: ${sum / 60}h thay vì ${soll / 60}h`);
     }
   }
 
-  // 2. Mehrere Dienste an einem Tag sind erlaubt – aber sie dürfen sich nicht
-  //    ÜBERSCHNEIDEN. Der Laden schließt Di–Fr mittags; wer nur einen Block
-  //    arbeiten dürfte, käme dort auf höchstens 5 Stunden, und daraus entstand
-  //    eine Monatsdecke, die es in Wirklichkeit nicht gibt.
+  // 2. Mehrere Dienste an einem Tag sind erlaubt – aber nicht überschneidend.
   for (const e of employees) {
     const meine = shifts.filter((s) => s.employeeId === e.id);
     for (const a of meine) {
@@ -67,19 +69,19 @@ function audit(
     if (run > 6) problems.push(`${e.id}: ${run} ngày liên tiếp`);
   }
 
-  // 4. Schicht liegt im Zeitfenster des Tages und nicht an geschlossenen Tagen
+  // 4. Schicht liegt komplett in einem Öffnungsblock und nicht an geschlossenen Tagen
   for (const s of shifts) {
     const day = resolveDay(DEFAULT_WORK_HOURS, s.date, holidays, overrides);
     if (day.closed) {
       problems.push(`${s.date}: có ca dù đóng cửa`);
       continue;
     }
-    if (s.startMinutes < day.window.startMinutes || s.endMinutes > day.window.endMinutes) {
+    if (!day.blocks.some((b) => s.startMinutes >= b.startMinutes && s.endMinutes <= b.endMinutes)) {
       problems.push(`${s.date}: ca ${s.startMinutes}-${s.endMinutes} ngoài khung`);
     }
   }
 
-  // 5. Pausenregel + Rechenweg stimmen
+  // 5. Pausenregel + Rechenweg stimmen, höchstens 9 h bezahlt je Tag
   for (const s of shifts) {
     if (s.pauseMinutes !== calculatePause(s.paidMinutes)) {
       problems.push(`${s.date}/${s.employeeId}: nghỉ ${s.pauseMinutes}p cho ca ${s.paidMinutes / 60}h`);
@@ -87,9 +89,11 @@ function audit(
     if (s.endMinutes - s.startMinutes - s.pauseMinutes !== s.paidMinutes) {
       problems.push(`${s.date}/${s.employeeId}: giờ công không khớp`);
     }
-    if (s.paidMinutes < 3 * 60 || s.paidMinutes > 9 * 60) {
-      problems.push(`${s.date}/${s.employeeId}: ca ${s.paidMinutes / 60}h ngoài 3..9h`);
-    }
+  }
+  for (const e of employees) {
+    const perDay = new Map<string, number>();
+    for (const s of shifts.filter((x) => x.employeeId === e.id)) perDay.set(s.date, (perDay.get(s.date) ?? 0) + s.paidMinutes);
+    for (const [date, paid] of perDay) if (paid > 9 * 60) problems.push(`${e.id} ${date}: ${paid / 60}h > 9h`);
   }
 
   return problems;
@@ -112,94 +116,52 @@ describe("splitTargetHours: định mức nào chia được", () => {
 });
 
 describe("Scheduler: chạy thử 12 tháng liên tiếp", () => {
-  // Sonntag ist geschlossen -> die Monatskapazität sinkt. Diese Sollwerte sind
-  // in JEDEM Monat 2026 erreichbar (auch im kurzen Februar).
-  const employees = [
-    mk("VZ1", "VOLLZEIT", 150),
-    mk("VZ2", "VOLLZEIT", 152),
-    mk("VZ3", "VOLLZEIT", 148),
-    mk("VZ4", "VOLLZEIT", 150),
-    mk("TZ1", "TEILZEIT", 40),
-    mk("TZ2", "TEILZEIT", 55),
-    mk("TZ3", "TEILZEIT", 55),
-    mk("TZ4", "TEILZEIT", 79),
-    mk("TZ5", "TEILZEIT", 80),
-  ];
+  // Startbelegschaft von Viet Cuisine (ohne Eintrittsdatum: ganzes Jahr).
+  const employees = vietCuisineEmployees().map(({ startDate: _start, ...e }) => e);
 
   for (let month = 1; month <= 12; month++) {
     it(`tháng ${month}/2026 giữ đủ mọi quy tắc cứng`, () => {
       const shifts = generateSchedule({ year: 2026, month, workHours: DEFAULT_WORK_HOURS, employees });
-      expect(audit(shifts, employees, 2026)).toEqual([]);
+      expect(audit(shifts, employees, 2026, month)).toEqual([]);
     });
   }
 });
 
-describe("Scheduler: định mức cao ép sát số ngày trong tháng", () => {
-  // 1 người, 26 ca 8h = 208h trong tháng 2 (28 ngày) -> buộc phải làm
-  // nhiều ngày liên tiếp. Đây là chỗ dễ phá quy tắc 6 ngày nhất.
+describe("Scheduler: hợp đồng tuần cao hơn sức chứa", () => {
+  // 6 ngày × 9h = 54h là trần của một tuần; 60h không thể xếp đủ.
   const cases: Array<{ ten: string; emps: Employee[]; year: number; month: number }> = [
-    { ten: "1 người 208h / tháng 2 (28 ngày)", emps: [mk("A", "VOLLZEIT", 208)], year: 2026, month: 2 },
-    { ten: "1 người 224h / tháng 2", emps: [mk("A", "VOLLZEIT", 224)], year: 2026, month: 2 },
-    { ten: "1 người 232h / tháng 1 (31 ngày)", emps: [mk("A", "VOLLZEIT", 232)], year: 2026, month: 1 },
-    { ten: "2 người 200h / tháng 4 (30 ngày)", emps: [mk("A", "VOLLZEIT", 200), mk("B", "VOLLZEIT", 200)], year: 2026, month: 4 },
+    { ten: "1 người 60h/tuần / tháng 2", emps: [mk("A", "VOLLZEIT", 60)], year: 2026, month: 2 },
+    { ten: "2 người 60h/tuần / tháng 4", emps: [mk("A", "VOLLZEIT", 60), mk("B", "VOLLZEIT", 60)], year: 2026, month: 4 },
   ];
 
   for (const c of cases) {
     it(c.ten, () => {
-      // Ein zu hohes Soll bricht die Planung NICHT mehr ab: geliefert wird der
-      // bestmögliche Plan, der Rest ist eine Warnung. Geprüft wird deshalb,
-      // dass alle harten Regeln stehen – nur der Fehlbetrag ist erlaubt.
-      const shifts = generateSchedule({
-        year: c.year,
-        month: c.month,
-        workHours: DEFAULT_WORK_HOURS,
-        employees: c.emps,
-      });
-      expect(audit(shifts, c.emps, c.year, {}, true)).toEqual([]);
+      const shifts = generateSchedule({ year: c.year, month: c.month, workHours: DEFAULT_WORK_HOURS, employees: c.emps });
+      expect(audit(shifts, c.emps, c.year, c.month, {}, true)).toEqual([]);
       expect(shifts.length).toBeGreaterThan(0);
     });
 
     it(`${c.ten} – Fehlbetrag wird als Warnung gemeldet`, () => {
-      const shifts = generateSchedule({
-        year: c.year,
-        month: c.month,
-        workHours: DEFAULT_WORK_HOURS,
-        employees: c.emps,
-      });
-      const result = validateSchedule(c.emps, shifts);
-      const knapp = c.emps.filter(
-        (e) =>
-          shifts.filter((s) => s.employeeId === e.id).reduce((a, s) => a + s.paidMinutes, 0) <
-          e.targetMinutes,
-      );
-      for (const e of knapp) {
-        const warnung = result.errors.find(
-          (x) => x.employeeId === e.id && x.severity === "warning",
-        );
+      const shifts = generateSchedule({ year: c.year, month: c.month, workHours: DEFAULT_WORK_HOURS, employees: c.emps });
+      const openDates = openDatesOf(c.year, c.month);
+      const result = validateSchedule(c.emps, shifts, c.year, openDates);
+      for (const e of c.emps) {
+        const warnung = result.errors.find((x) => x.employeeId === e.id && x.severity === "warning");
         expect(warnung?.message).toContain("mới xếp được");
       }
-      // Warnungen dürfen den Plan nicht ungültig machen.
-      if (knapp.length > 0) expect(result.valid).toBe(true);
+      expect(result.valid).toBe(true);
     });
   }
 });
 
 describe("Scheduler: có ngày đóng cửa", () => {
-  it("không xếp ca vào ngày đóng cửa và vẫn đủ định mức", () => {
-    // März hat zusätzlich zum geschlossenen Sonntag noch 5 zu geschlossene
-    // Montage -> deutlich weniger offene Tage, daher moderate Sollwerte.
-    const employees = [mk("VZ1", "VOLLZEIT", 112), mk("TZ1", "TEILZEIT", 48)];
+  it("không xếp ca vào ngày đóng cửa và giữ quy tắc cứng", () => {
+    const employees = [mk("VZ1", "VOLLZEIT", 39), mk("TZ1", "TEILZEIT", 20)];
     const overrides: OverrideMap = {};
-    for (const d of ["2026-03-02", "2026-03-09", "2026-03-16", "2026-03-23", "2026-03-30"]) {
+    for (const d of ["2026-03-03", "2026-03-10", "2026-03-17", "2026-03-24", "2026-03-31"]) {
       overrides[d] = { date: d, closed: true };
     }
-    const shifts = generateSchedule({
-      year: 2026,
-      month: 3,
-      workHours: DEFAULT_WORK_HOURS,
-      employees,
-      overrides,
-    });
-    expect(audit(shifts, employees, 2026, overrides)).toEqual([]);
+    const shifts = generateSchedule({ year: 2026, month: 3, workHours: DEFAULT_WORK_HOURS, employees, overrides });
+    expect(audit(shifts, employees, 2026, 3, overrides)).toEqual([]);
   });
 });

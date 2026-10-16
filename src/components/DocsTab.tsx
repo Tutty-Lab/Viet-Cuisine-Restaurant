@@ -1,10 +1,17 @@
 import {
-  DAY_WEIGHTS,
   WEEKDAY_LABELS_VI,
+  WEEKDAY_SHORT_VI,
   type WeekdayKey,
 } from "../lib/demand";
-import { PEAK_WINDOWS_BY_WEEKDAY } from "../lib/scheduler";
-import { CLOSING_MAX, CLOSING_MIN, CLOSING_START } from "../lib/staffing";
+import {
+  CLOSING_START,
+  DEMAND_PROFILE,
+  LUNCH_END,
+  type DemandBand,
+} from "../lib/staffing";
+import { DEFAULT_WORK_HOURS } from "../lib/workHours";
+import { RULES } from "../lib/rules";
+import type { StoreConfig } from "../lib/stores";
 import { SHIFT_LENGTHS } from "../lib/shifts";
 import { calculatePause, minutesToTime, presenceFromPaid } from "../lib/time";
 
@@ -22,129 +29,261 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function WeekdayTable() {
+function WeekdayTable({ stores }: { stores: StoreConfig[] }) {
   return (
     <div className="overflow-x-auto">
       <table className="border-collapse text-sm">
         <thead>
           <tr>
+            <th className="border border-slate-200 bg-slate-50 px-3 py-1 text-left font-medium text-slate-600">Quán</th>
             {WEEKDAY_ORDER.map((key) => (
-              <th key={key} className={`border border-slate-200 px-3 py-1 font-medium ${DAY_WEIGHTS[key] > 1 ? "bg-amber-50 text-amber-900" : "bg-slate-50 text-slate-600"}`}>
+              <th key={key} className="border border-slate-200 bg-slate-50 px-3 py-1 font-medium text-slate-600">
                 {WEEKDAY_LABELS_VI[key]}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          <tr>
-            {WEEKDAY_ORDER.map((key) => (
-              <td key={key} className="border border-slate-200 px-3 py-1 text-center font-semibold">
-                {DAY_WEIGHTS[key].toFixed(1).replace(".", ",")}
-              </td>
-            ))}
-          </tr>
+          {stores.map((store) => (
+            <tr key={store.id}>
+              <td className="border border-slate-200 px-3 py-1 font-medium">{store.shortName}</td>
+              {WEEKDAY_ORDER.map((key) => (
+                <td
+                  key={key}
+                  className={`border border-slate-200 px-3 py-1 text-center font-semibold ${store.dayWeights[key] > 1 ? "bg-amber-50 text-amber-900" : ""}`}
+                >
+                  {DEFAULT_WORK_HOURS.closedWeekdays[key] ? "nghỉ" : store.dayWeights[key].toFixed(1).replace(".", ",")}
+                </td>
+              ))}
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
   );
 }
 
-function PeakTable() {
+const fmtWeight = (weight: number) => weight.toFixed(1).replace(".", ",");
+const fmtRange = (min: number, max: number) => (Number.isFinite(max) ? `${min}–${max}` : `${min}+`);
+
+
+
+/** Đường nhu cầu trong ngày – lấy thẳng từ DEMAND_PROFILE, cùng nguồn với thuật toán. */
+function DemandCurve() {
+  const column = (title: string, bands: readonly DemandBand[]) => (
+    <div className="min-w-0 flex-1">
+      <div className="mb-1 text-xs font-semibold text-slate-600">{title}</div>
+      <ul className="space-y-1">
+        {bands.map((b) => (
+          <li key={b.startMinutes} className="grid grid-cols-[6.5rem_1fr_2.5rem] items-center gap-2 text-xs">
+            <span className="tabular-nums text-slate-600">{minutesToTime(b.startMinutes)}–{minutesToTime(b.endMinutes)}</span>
+            <span className="relative h-4 rounded bg-slate-100" title={b.label}>
+              <span
+                className={`absolute inset-y-0 left-0 rounded ${b.level >= 1.5 ? "bg-amber-400" : b.level > 1 ? "bg-amber-200" : "bg-teal-300"}`}
+                style={{ width: `${(b.level / 1.5) * 100}%` }}
+              />
+              <span className="absolute inset-0 truncate px-1.5 leading-4 text-slate-800">{b.label}</span>
+            </span>
+            <span className="text-right font-semibold tabular-nums">{fmtWeight(b.level)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+  return (
+    <div className="flex flex-col gap-4 sm:flex-row">
+      {column("T3–T4 (ngày thường)", DEMAND_PROFILE.weekday)}
+      {column("T5–CN và ngày lễ", DEMAND_PROFILE.sunday)}
+    </div>
+  );
+}
+
+/**
+ * Một dòng cho mỗi khung: mốc (hệ số 1,0) và số người thực tế theo từng nhóm hệ số.
+ * Lấy thẳng từ STAFFING_RULES – cùng nguồn với thuật toán và báo cáo Độ phủ.
+ */
+function StaffingRulesTable({ store }: { store: StoreConfig }) {
+  const cell = "border border-slate-200 px-3 py-1.5";
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-[700px] border-collapse text-sm">
+      <table className="w-full min-w-[560px] border-collapse text-sm">
         <thead>
           <tr className="bg-slate-50 text-left text-slate-600">
-            <th className="border border-slate-200 px-3 py-1">Ngày</th>
-            <th className="border border-slate-200 px-3 py-1">Khung kiểm tra</th>
-            <th className="border border-slate-200 px-3 py-1">Mục tiêu</th>
+            <th className={cell}>Khung</th>
+            <th className={cell}>Số người</th>
+            <th className={cell}>Áp dụng</th>
           </tr>
         </thead>
         <tbody>
-          {WEEKDAY_ORDER.filter((key) => PEAK_WINDOWS_BY_WEEKDAY[key].length > 0).flatMap((key) =>
-            PEAK_WINDOWS_BY_WEEKDAY[key].map((peak) => (
-              <tr key={`${key}-${peak.label}-${peak.startMinutes}`}>
-                <td className="border border-slate-200 px-3 py-1">{WEEKDAY_LABELS_VI[key]}</td>
-                <td className="border border-slate-200 px-3 py-1">{peak.label}: {minutesToTime(peak.startMinutes)}–{minutesToTime(peak.endMinutes)}</td>
-                <td className="border border-slate-200 px-3 py-1">{peak.minStaff}–{peak.maxStaff === Infinity ? "∞" : peak.maxStaff} người</td>
-              </tr>
-            )),
-          )}
+          {store.staffingRules.map((rule) => (
+            <tr key={rule.label}>
+              <td className={cell}>
+                <div className="font-medium text-slate-900">{rule.label}</div>
+                <div className="text-xs text-slate-500">{rule.when}</div>
+              </td>
+              <td className={`${cell} text-center`}>{fmtRange(rule.minStaff, rule.maxStaff)}</td>
+              <td className={`${cell} text-xs text-slate-500`}>
+                {rule.weekdays ? rule.weekdays.map((day) => WEEKDAY_SHORT_VI[day]).join(", ") : "mọi ngày mở"}
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
   );
 }
 
-export function DocsTab() {
+export function DocsTab({ stores }: { stores: StoreConfig[] }) {
+  // Các quán dùng chung giờ mở và luật giờ làm; khác nhau ở hệ số ngày, số
+  // người mỗi khung, danh sách nhân viên và ai phải trực ngày lễ.
+  const duty = stores
+    .map((store) => ({ store, employee: store.sampleEmployees().find((e) => e.requiredOnHolidays) }))
+    .find((entry) => entry.employee);
+  const holidayDuty = duty?.employee;
+  // Wer arbeitet in mehr als einem Laden? (personKey ist derselbe Mensch.)
+  const shared = new Map<string, { name: string; stores: StoreConfig[] }>();
+  for (const store of stores) {
+    for (const employee of store.sampleEmployees()) {
+      if (!employee.personKey) continue;
+      const entry = shared.get(employee.personKey) ?? { name: employee.name, stores: [] };
+      entry.stores.push(store);
+      shared.set(employee.personKey, entry);
+    }
+  }
+  const doubleJobs = [...shared.values()].filter((entry) => entry.stores.length > 1);
   return (
     <div className="max-w-3xl space-y-4">
       <div className="rounded-lg bg-slate-900 p-4 text-white sm:p-5">
         <h1 className="text-lg font-semibold">Tài liệu — nguyên tắc xếp lịch</h1>
-        <p className="mt-1 text-sm text-slate-300">
-          Các mục dưới đây tách rõ điều kiện bắt buộc, mục tiêu lập kế hoạch và giới hạn thực tế.
+<ul className="mt-2 space-y-0.5 text-sm text-slate-300">
+          {stores.map((store) => (
+            <li key={store.id}>
+              <b className="text-white">{store.name}</b> · {store.address}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 text-sm text-slate-300">
+          Một quán, Thứ Hai nghỉ. Tháng/năm chọn trong popup <b>Tạo lịch</b>; tab Chấm công xuất
+          <b> một file PDF</b> cho cả quán hoặc từng người.
+        </p>
+        <p className="mt-2 text-sm text-slate-300">
+          Mô tả đúng thuật toán đang chạy: bảng khung giờ, hệ số và đường nhu cầu lấy thẳng từ code – đổi code
+          là trang này đổi theo. Thứ tự ưu tiên khi xung đột: <b>luật &amp; hợp đồng</b> → <b>số người tối
+          thiểu</b> → <b>đường nhu cầu</b> → <b>độ dài ca ưa thích</b>.
         </p>
       </div>
 
-      <Section title="Điều kiện bắt buộc">
+      <Section title="1. Điều kiện bắt buộc">
         <ul className="list-disc space-y-1 pl-5">
-          <li><b>Thứ Hai đóng cửa.</b> Nếu trùng ngày lễ, hiện vẫn giữ đóng cửa theo quy tắc Thứ Hai. Cách xử lý này còn chờ xác nhận; ngày có override giờ riêng được mở.</li>
-          <li><b>T3–T7:</b> 10:30–14:30 và 16:30–22:30. <b>CN/ngày lễ được mở:</b> 10:30–22:00 liên tục.</li>
-          <li>Trong toàn bộ mỗi khung mở cửa phải có <b>ít nhất 2 người thực làm</b>. Chủ nhật áp dụng liên tục 10:30–22:00; người đang pause không được tính.</li>
-          <li>Từ <b>21:30 đến giờ đóng cửa</b> cần <b>5–6 người</b>. Đây là số người làm việc thực tế, không tính người đang nghỉ.</li>
-          <li>Cao điểm khách hàng: <b>18:00–20:00</b>; CN thêm <b>12:00–14:00</b>. Số người lập kế hoạch bên dưới là mức vận hành do code suy ra, không phải số khách hàng đã được người dùng chốt.</li>
-          <li>Hợp đồng tuần là <b>giới hạn cứng</b>; không mượn giờ giữa ISO-week. Tối đa 6 ngày liên tiếp, tôn trọng ngày được làm và các ngày nghỉ đã nhập.</li>
-          <li>Mỗi ca nằm gọn trong một khung mở; ca gãy không chồng giờ. Pauses phải có thời điểm bắt đầu rõ ràng để loại người đó khỏi coverage trong đúng khoảng nghỉ.</li>
+          <li><b>Giờ mở:</b> Thứ Hai nghỉ (trùng ngày lễ vẫn nghỉ; muốn mở thì đặt „giờ riêng" ở Cài đặt). <b>T3–T7:</b> {minutesToTime(DEFAULT_WORK_HOURS.perWeekday.tuesday[0].startMinutes)}–{minutesToTime(LUNCH_END)} và {minutesToTime(DEFAULT_WORK_HOURS.perWeekday.tuesday[1].startMinutes)}–22:30, giữa hai khung quán đóng. <b>CN và ngày lễ:</b> 10:30–22:00 liền.</li>
+          <li><b>Nghỉ phép:</b> ngày đã chọn ở tab Nhân viên không xếp ca; giờ định mức giữ nguyên. Phép năm: Vollzeit 24, Teilzeit 16, Minijob 8 ngày – vượt chỉ cảnh báo.</li>
+          <li><b>Luật giờ làm:</b> tối đa <b>8 giờ công/ngày</b> (mức quán tự đặt, thấp hơn luật 10h); tối đa <b>6 ngày liên tiếp</b>. Trên 6h công nghỉ <b>30′</b>, trên 8h nghỉ <b>60′</b> – giờ nghỉ có mốc cụ thể, bắt đầu sau ít nhất 1h vào ca.</li>
+          <li><b>Hợp đồng là giới hạn cứng:</b> các quán ký theo <b>giờ mỗi tháng</b> (xem tab Nhân viên). Không ai bị xếp vượt hợp đồng; thiếu thì báo cảnh báo vàng.</li>
+          {doubleJobs.length > 0 && (
+            <li>
+              <b>Người làm ở hai quán</b> ({doubleJobs.map((entry) => entry.name).join(", ")}): app xếp các quán
+              lần lượt và <b>không xếp trùng ngày</b> — hai quán cách nhau xa, một ngày chỉ làm được một nơi.
+              Vì vậy tổng giờ hai nơi cộng lại phải vừa với số ngày quán mở; nếu không, phần thiếu hiện ở
+              cảnh báo vàng của quán xếp sau.
+            </li>
+          )}
+          <li><b>Luôn ít nhất 2 người suốt giờ mở, từ 21:30 ít nhất 3 người</b> — khung „Trong giờ mở cửa" và „Đóng cửa" ở mục 3.</li>
+          {holidayDuty && (
+            <li><b>{duty?.store.shortName}: ngày lễ phải có {holidayDuty.name} trong ca</b> — bật ở tab Nhân viên (ô „Trực ngày lễ"), thuật toán giữ chỗ cho người đó trước rồi mới chia phần còn lại. Quán còn lại không có yêu cầu này.</li>
+          )}
+          <li><b>Ngày làm {SHIFT_LENGTHS[0]}–{SHIFT_LENGTHS[SHIFT_LENGTHS.length - 1]} giờ công.</b> Mỗi ca nằm gọn trong một khung mở, nên T3–T7 ca trưa dài nhất 4h (khung 10:30–14:30). Một người có thể làm cả trưa lẫn tối trong ngày; khi chia hai ca như vậy, phần ngắn hơn ít nhất <b>2 giờ</b>. Ca đứng một mình không bao giờ dưới 3 giờ.</li>
         </ul>
       </Section>
 
-      <Section title="Khung giờ và mục tiêu nhân sự">
-        <p>
-          Các cửa sổ hiển thị dưới đây lấy trực tiếp từ cấu hình lập lịch. <b>2 người suốt giờ mở cửa</b> và
-          <b>5–6 người lúc đóng</b> là yêu cầu vận hành. Mức tối thiểu cao điểm
-          <b>4 ngày thường, 6 ngày bận (T6–CN)</b> và <b>6 CN/ngày lễ ở khung trưa</b> là
-          <b>planning target</b> được suy ra từ baseline 4 × trọng số ngày; không phải yêu cầu khách hàng độc lập.
+      <Section title="Luật cứng và luật mềm">
+        <p className="mb-2">
+          <b>Luật cứng</b>: app không bao giờ phá; lịch sửa tay mà phá thì báo lỗi đỏ. <b>Luật mềm</b>: app xếp
+          theo khi được; không được thì báo vàng, và nút <b>Tìm cách xếp khác</b> thử nới thiết lập của từng nhân
+          viên, tạo lịch thử cả các quán, rồi chỉ gợi ý cách nào tốt hơn kèm nút <b>Áp dụng</b>.
         </p>
-        <PeakTable />
+        <div className="grid gap-3 sm:grid-cols-2">
+          {(["hard", "soft"] as const).map((kind) => (
+            <div key={kind}>
+              <div className={`font-semibold ${kind === "hard" ? "text-rose-700" : "text-amber-700"}`}>
+                {kind === "hard" ? "Luật cứng" : "Luật mềm"}
+              </div>
+              <ul className="mt-1 list-disc space-y-1 pl-5">
+                {RULES.filter((r) => r.kind === kind).map((r) => (
+                  <li key={r.id}>
+                    <b>{r.title}.</b> {r.detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="2. Hệ số ngày và giờ công mỗi ngày">
+        <p>
+          Ngày đông: <b>T6, T7, CN = 1,5</b>; T3–T5 = 1,0; ngày lễ tính như Chủ nhật. Giờ công mỗi ngày chia theo
+          hệ số, chuẩn hoá trong từng ISO-week:
+        </p>
+        <pre className="overflow-x-auto rounded bg-slate-100 p-3 text-xs text-slate-800">{`Giờ công ngày = giờ công cả tuần × (hệ số ngày × giờ mở cửa)
+              ÷ Σ (hệ số × giờ mở cửa) các ngày mở trong tuần`}</pre>
+        <WeekdayTable stores={stores} />
+        <ul className="list-disc space-y-1 pl-5">
+          <li>Hợp đồng <b>theo tháng</b> được chia cho các tuần theo số ngày mở, rồi mới chia cho từng ngày theo hệ số.</li>
+          <li>Hệ số 1,5 là <b>mục tiêu</b>, không phải tỷ lệ bảo đảm: tổng giờ hợp đồng là cố định, nên ngày đông
+          nhận nhiều giờ hơn trong giới hạn hợp đồng và 8h/ngày.</li>
+          <li>Mọi giờ đều nằm trên <b>mốc 30 phút</b>. Phần lẻ sau khi làm tròn được <b>bù vào cuối</b>: một ca dài thêm 30′ ở chỗ ít ảnh hưởng nhất. Tuần lẻ ở đầu/cuối tháng nếu chỉ còn dưới 3 giờ thì phần đó <b>dồn sang tuần kề</b>, không tạo ca lẻ 1–2 giờ.</li>
+        </ul>
+      </Section>
+
+      <Section title="3. Khung giờ và mục tiêu nhân sự">
+        <p>
+          Mỗi khung có <b>số người tối thiểu và tối đa</b>. Thiếu hoặc vượt bị phạt nặng nhất trong thuật toán và
+          hiện đỏ trong báo cáo Độ phủ. Tối 18–20h 4–6 người (T6–CN 6–9), trưa CN/lễ 12–14h như tối ngày đông.
+          Khung „Trong giờ mở cửa" (≥ 2) và „Đóng cửa" (≥ 3 từ 21:30) là <b>quy tắc cứng</b>.
+        </p>
+        <div className="space-y-4">
+          {stores.map((store) => (
+            <div key={store.id}>
+              <div className="mb-1 text-sm font-semibold text-slate-800">{store.name}</div>
+              <StaffingRulesTable store={store} />
+            </div>
+          ))}
+        </div>
         <p className="text-slate-600">
-          Báo cáo dùng chính thời gian, min/max, actual staff và trạng thái của từng cửa sổ.
-          Thiếu người hoặc vượt giới hạn phải hiện rõ; “lịch đã tạo” không đồng nghĩa mọi mục tiêu đã đạt.
+          „Đóng cửa" (từ {minutesToTime(CLOSING_START)} tới khi đóng) là quy tắc <b>cứng</b>: luôn phải còn ít nhất ba người.
         </p>
       </Section>
 
-      <Section title="Nhu cầu: 1,5 là mục tiêu theo tuần">
+      <Section title="4. Đường nhu cầu trong ngày">
         <p>
-          <b>T6, T7, CN = 1,5</b>; ngày thường = 1,0. Hệ số mô tả nhu cầu tương đối.
-          Chuẩn hóa trong từng ISO-week theo số giờ thực tế có thể phân bổ:
+          Giờ công của ngày được chia theo đường dưới đây thành <b>số người mục tiêu cho từng 30 phút</b>.
+          Chủ nhật và ngày lễ có thêm đỉnh trưa 12–14h; mọi ngày có đỉnh tối 18–20h.
         </p>
-        <pre className="overflow-x-auto rounded bg-slate-100 p-3 text-xs text-slate-800">{`Tagesziel = Stunden der Woche × Gewicht des Tages
-           ÷ Summe der Gewichte der geöffneten Tage`}</pre>
-        <WeekdayTable />
-        <p>
-          Báo cáo chỉ tính ratio T6–CN so với T3–T5 cho tuần đầy đủ, tránh kết luận sai ở tuần đầu/cuối tháng.
-          Ngày lễ dùng khung CN khi được mở. Tỷ lệ đúng 1,5 không được đảm bảo vì hợp đồng tuần,
-          availability, pauses, số người tối thiểu và lưới giờ có thể xung đột.
-        </p>
-        <p className="text-slate-600">
-          Fulltime 39 giờ/tuần ưu tiên mẫu thứ cố định, khoảng 6–7 giờ/ngày và thường 6 ngày/tuần.
-          Một mẫu đều 6,5 giờ mỗi ngày lại triệt tiêu chênh lệch nhu cầu; ưu tiên này vì thế là mềm,
-          còn hợp đồng và giới hạn nhân sự là cứng.
-        </p>
+        <pre className="overflow-x-auto rounded bg-slate-100 p-3 text-xs text-slate-800">{`Người mục tiêu (30′) = giờ công ngày × mức ÷ Σ (mức × 30′) cả ngày`}</pre>
+        <DemandCurve />
       </Section>
 
-      <Section title="Laca và pauses">
+      <Section title="5. Thuật toán xếp lịch – các bước">
+        <ol className="list-decimal space-y-1 pl-5">
+          <li><b>Giờ tuần của từng người:</b> hợp đồng tháng chia cho các tuần theo số ngày mở (tính từ ngày vào làm).</li>
+          <li><b>Giờ công mỗi ngày</b> theo công thức mục 2, rồi <b>số người mục tiêu mỗi 30′</b> theo đường nhu cầu mục 4.</li>
+          <li><b>Chọn ngày và độ dài ca cho từng người trong tuần</b> sao cho đúng giờ tuần; ai phải trực ngày lễ thì ngày đó được giữ trước.</li>
+          <li><b>Đặt ca</b> ở mọi mốc 30′ trong khung. Chấm điểm theo thứ tự nặng → nhẹ: thiếu/thừa người so với khung mục 3 → lệch số người mục tiêu (bình phương) → lệch giờ công ngày → ca gãy (phạt nhẹ).</li>
+          <li><b>Bù giờ lẻ:</b> phần còn thiếu do làm tròn được thêm 30′ vào ca ít ảnh hưởng nhất, không vượt 8h/ngày và không vượt hợp đồng.</li>
+          <li><b>Tinh chỉnh từng ngày:</b> dời giờ vào/ra và dời <b>giờ nghỉ</b> theo số người thực tế.</li>
+          <li><b>Kiểm tra</b>: luật, hợp đồng, ca, nghỉ, trực ngày lễ và độ phủ; lỗi đỏ chặn, cảnh báo vàng không chặn xuất PDF.</li>
+        </ol>
+      </Section>
+
+      <Section title="6. Giờ nghỉ giữa ca">
         <p>
-          Laca vẫn <b>chưa gán cho ai</b> theo yêu cầu “không cần”. Không suy đoán danh tính,
-          không đổi hợp đồng 40 giờ hiện có. Khi người dùng tự chọn <code>fixedShift</code>, cửa sổ là
-          <b>06:30–14:30</b> và không được tự cắt ngắn.
-        </p>
-        <p>
-          Pause là khoảng thời gian cụ thể trong ca: trên 6 giờ công liên tục cần 30 phút, trên 8 giờ liên tục cần 60 phút.
-          Khoảng pause kéo dài thời gian có mặt nhưng không tính vào giờ công:
+          Giờ nghỉ là khoảng thời gian cụ thể trong ca: trên 6 giờ công nghỉ 30 phút, trên 8 giờ nghỉ 60 phút.
+          Khoảng nghỉ kéo dài thời gian có mặt nhưng không tính vào giờ công. Khoảng 14:30–16:30 giữa hai khung
+          mở (T3–T7) <b>không phải</b> giờ nghỉ giữa ca – lúc đó quán đóng cửa.
         </p>
         <div className="overflow-x-auto">
           <table className="border-collapse text-sm">
-            <thead><tr className="bg-slate-50"><th className="border border-slate-200 px-3 py-1">Giờ công</th><th className="border border-slate-200 px-3 py-1">Pause</th><th className="border border-slate-200 px-3 py-1">Có mặt</th></tr></thead>
+            <thead><tr className="bg-slate-50"><th className="border border-slate-200 px-3 py-1">Giờ công</th><th className="border border-slate-200 px-3 py-1">Nghỉ</th><th className="border border-slate-200 px-3 py-1">Có mặt</th></tr></thead>
             <tbody>{SHIFT_LENGTHS.map((hours) => (
               <tr key={hours}>
                 <td className="border border-slate-200 px-3 py-1">{hours}h</td>
@@ -154,39 +293,23 @@ export function DocsTab() {
             ))}</tbody>
           </table>
         </div>
-        <p className="text-slate-600">
-          Với Laca 8 giờ có mặt và 30 phút pause, phần công là 7,5 giờ. Năm ca = 37,5 giờ,
-          sáu ca = 45 giờ; riêng hợp đồng 39 giờ không thể vừa giữ cửa sổ nguyên vẹn vừa đạt chính xác.
-          Phần thiếu/thừa phải báo cáo, không sửa thầm hợp đồng.
-        </p>
       </Section>
 
-      <Section title="Ngày đặc biệt và kiểm tra">
+      <Section title="7. Ngày đặc biệt và kiểm tra">
         <ul className="list-disc space-y-1 pl-5">
-          <li>Override có thể đóng một ngày hoặc đặt một khung giờ riêng. Lịch phải được đánh giá lại sau override.</li>
-          <li>Lịch chỉnh tay phải giữ đúng availability, hợp đồng tuần, tối đa 6 ngày liên tiếp, khung ca, pause và coverage.</li>
-          <li>StaffingReport phân biệt <b>actual</b>, <b>target</b>, giới hạn bắt buộc và cảnh báo. Không dùng màu làm tín hiệu duy nhất.</li>
+          <li>Ngày lễ theo <b>Bayern</b> (Berg, Oberpfalz): có Heilige Drei Könige, Fronleichnam, Mariä Himmelfahrt và Allerheiligen.</li>
+          <li>Ngày đặc biệt (override) có thể đóng cả ngày hoặc đặt khung giờ riêng; bấm <b>Tạo lịch</b> lại sau khi thêm.</li>
+          <li>Sửa tay một ca vẫn phải giữ hợp đồng, tối đa 8 giờ/ngày, 6 ngày liên tiếp, khung ca và giờ nghỉ – ca sửa tay được đánh dấu <b>Đã sửa tay</b>.</li>
+          <li>Báo cáo Độ phủ ghi <b>số người thực tế / yêu cầu</b> từng 30′; thiếu hoặc vượt khung hiện viền đỏ.</li>
         </ul>
       </Section>
 
-      <Section title="Giới hạn cần biết">
-        <p>
-          Đây là heuristic, không phải solver tối ưu toàn cục. Tổ hợp hợp đồng, 1,5 demand objective,
-          mẫu fulltime, fixed shift, availability, 2 người suốt giờ mở cửa và 5–6 người lúc đóng có thể không tồn tại.
-          Khi không tồn tại, lịch phải giữ phần đạt được và báo rõ lý do.
-        </p>
-        <p className="text-slate-600">
-          Giờ đóng chuẩn là {minutesToTime(CLOSING_START)}–22:30 và mục tiêu là {CLOSING_MIN}–{CLOSING_MAX} người.
-          Các con số khác trong báo cáo là kết quả thực tế của lịch, không phải cam kết.
-        </p>
-      </Section>
-
-      <Section title="Cách dùng">
+      <Section title="8. Cách dùng">
         <ol className="list-decimal space-y-1 pl-5">
-          <li>Kiểm tra giờ mở, ngày lễ và override trong <b>Cài đặt</b>.</li>
-          <li>Kiểm tra weekly contract, availability và Laca trong <b>Nhân viên</b>; Laca chưa có người.</li>
-          <li>Tạo lịch, đọc <b>StaffingReport</b> cùng cảnh báo hợp đồng trước khi in.</li>
-          <li>Sau khi sửa tay, kiểm tra lại toàn bộ report rồi mới dùng bản in.</li>
+          <li>Kiểm tra giờ mở, ngày lễ và ngày đặc biệt trong <b>Cài đặt</b>.</li>
+          <li>Kiểm tra giờ hợp đồng (theo tháng), ngày vào làm và ô trực ngày lễ trong <b>Nhân viên</b>.</li>
+          <li>Bấm <b>Tạo lịch làm việc</b>, xem <b>Độ phủ</b> và các cảnh báo (i) trước khi xuất PDF.</li>
+          <li>Sau khi sửa tay, xem lại Độ phủ và cảnh báo rồi mới xuất bản in.</li>
         </ol>
       </Section>
     </div>

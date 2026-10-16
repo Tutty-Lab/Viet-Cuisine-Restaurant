@@ -1,22 +1,28 @@
 // ============================================================================
-// Urlaubstage auswählen: eine Liste der Monatstage zum Ankreuzen.
+// Urlaubstage auswählen: ein kleiner Monatskalender zum Antippen.
 //
-// Vorher stand hier ein <input type="date">. Man musste den Tag im Kalender
-// des Browsers suchen oder ihn als mm/dd/yyyy eintippen, und das für JEDEN
-// einzelnen Tag neu – für eine Woche Urlaub sieben Mal.
+// Vorher stand hier eine Liste aller Monatstage mit Häkchen – einunddreißig
+// Zeilen in einem eigenen Scrollbereich, für jeden Mitarbeiter. Im Dialog vor
+// dem Planen waren das sechs Scrollfenster in einem scrollenden Fenster, und
+// bei einer Aushilfe, die nur sonntags kommt, standen dort auch Dienstag,
+// Mittwoch, Donnerstag – Tage, an denen Urlaub gar nichts bedeutet.
 //
-// Die Liste zeigt zu jedem Tag den Wochentag dazu. Das ist der Grund für die
-// Liste statt eines Kalenderrasters: beim Urlaub geht es fast immer darum, an
-// welchen Wochentagen jemand fehlt, und in einer Zeile steht das direkt neben
-// dem Datum, statt aus der Spaltenposition erschlossen zu werden.
+// Jetzt: sieben Spalten Mo–So, ein Tag ein Feld. Der Wochentag steht über der
+// Spalte, ein Tipp schaltet den Tag um. Gesperrt (grau) sind Tage, an denen der
+// Laden zu hat, und Tage, an denen die Person laut ihren festen Wochentagen
+// ohnehin nicht arbeitet. Ein schon gewählter Tag bleibt immer abwählbar.
 // ============================================================================
 
-import { WEEKDAY_LABELS_VI, parseIsoDate, weekdayKeyOf } from "../lib/demand";
+import { WEEKDAY_SHORT_VI, parseIsoDate, weekdayKeyOf, type WeekdayKey } from "../lib/demand";
 
 /** ISO-Datum "yyyy-MM-dd" für einen Tag des Monats. */
 function isoOf(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
+
+const SPALTEN: WeekdayKey[] = [
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+];
 
 export function VacationPicker({
   year,
@@ -24,6 +30,7 @@ export function VacationPicker({
   selected,
   onToggle,
   isClosed,
+  availableWeekdays,
 }: {
   year: number;
   month: number;
@@ -32,43 +39,63 @@ export function VacationPicker({
   onToggle: (iso: string) => void;
   /** Tage, an denen der Laden zu hat – dort ist Urlaub sinnlos. */
   isClosed?: (iso: string) => boolean;
+  /** Feste Arbeitstage der Person; fehlt/leer = alle Tage. */
+  availableWeekdays?: WeekdayKey[];
 }) {
   const tageImMonat = new Date(year, month, 0).getDate();
   const gewaehlt = new Set(selected);
+  // Leere Felder vor dem 1., damit der Tag unter seinem Wochentag steht.
+  const versatz = SPALTEN.indexOf(weekdayKeyOf(parseIsoDate(isoOf(year, month, 1))));
+  const arbeitstag = (key: WeekdayKey) =>
+    !availableWeekdays || availableWeekdays.length === 0 || availableWeekdays.includes(key);
 
   return (
-    // Fest begrenzte Höhe mit eigenem Scrollbereich: einunddreißig Zeilen mal
-    // sieben Mitarbeiter wären sonst eine sehr lange Seite.
-    <div className="max-h-56 w-56 overflow-y-auto rounded border border-slate-200">
-      {Array.from({ length: tageImMonat }, (_, i) => {
-        const tag = i + 1;
-        const iso = isoOf(year, month, tag);
-        const an = gewaehlt.has(iso);
-        const zu = isClosed?.(iso) === true;
-        return (
-          <label
-            key={iso}
-            className={`flex items-center gap-2 border-b border-slate-100 px-2 py-1 text-sm last:border-b-0 ${
-              zu
-                ? "cursor-not-allowed text-slate-300"
-                : an
-                  ? "cursor-pointer bg-amber-50 text-amber-900"
-                  : "cursor-pointer text-slate-600 hover:bg-slate-50"
-            }`}
+    <div className="inline-block rounded border border-slate-200 p-1.5">
+      <div className="grid grid-cols-7 gap-1">
+        {SPALTEN.map((key) => (
+          <div
+            key={key}
+            className={`text-center text-[10px] font-medium ${arbeitstag(key) ? "text-slate-500" : "text-slate-300"}`}
           >
-            <input
-              type="checkbox"
-              checked={an}
-              disabled={zu}
-              onChange={() => onToggle(iso)}
-              className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 disabled:opacity-30"
-            />
-            <span className="w-6 text-right tabular-nums font-medium">{tag}</span>
-            <span className="flex-1">{WEEKDAY_LABELS_VI[weekdayKeyOf(parseIsoDate(iso))]}</span>
-            {zu && <span className="text-[10px]">đóng cửa</span>}
-          </label>
-        );
-      })}
+            {WEEKDAY_SHORT_VI[key]}
+          </div>
+        ))}
+        {Array.from({ length: versatz }, (_, i) => (
+          <div key={`leer-${i}`} />
+        ))}
+        {Array.from({ length: tageImMonat }, (_, i) => {
+          const tag = i + 1;
+          const iso = isoOf(year, month, tag);
+          const an = gewaehlt.has(iso);
+          const zu = isClosed?.(iso) === true;
+          const frei = !arbeitstag(weekdayKeyOf(parseIsoDate(iso)));
+          // Ein bereits gewählter Tag lässt sich immer abwählen – auch wenn er
+          // inzwischen gesperrt wäre (z. B. Wochentage nachträglich geändert).
+          const gesperrt = (zu || frei) && !an;
+          const grund = zu ? "Quán đóng cửa" : frei ? "Người này không làm ngày này" : undefined;
+          return (
+            <button
+              key={iso}
+              type="button"
+              disabled={gesperrt}
+              onClick={() => onToggle(iso)}
+              title={gesperrt ? grund : an ? "Bấm để bỏ ngày nghỉ" : "Bấm để chọn ngày nghỉ"}
+              aria-pressed={an}
+              className={`h-8 w-8 rounded text-sm tabular-nums transition-colors ${
+                an
+                  ? "bg-amber-500 font-semibold text-white hover:bg-amber-600"
+                  : gesperrt
+                    ? zu
+                      ? "cursor-not-allowed text-slate-300 line-through"
+                      : "cursor-not-allowed text-slate-300"
+                    : "text-slate-700 hover:bg-amber-50 hover:text-amber-900"
+              }`}
+            >
+              {tag}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

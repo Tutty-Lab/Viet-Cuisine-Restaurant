@@ -1,24 +1,14 @@
 // ============================================================================
 // Wann darf eine Person überhaupt eingeplant werden?
 //
-// Bei Kylan ist das der Urlaub: eingetragene Tage werden beim Planen
-// ausgespart. Die Tage kommen IMMER vom Nutzer – wer wann frei nimmt, ist eine
-// Absprache im Betrieb und nichts, was ein Automat verteilen darf.
-//
 // Alles steht hier an EINER Stelle, weil der Scheduler an mehreren Stellen
-// Termine vergibt: beim ersten Verteilen, beim Verschieben, beim Tauschen und
-// in den Reparaturläufen. Bei einer anderen Filiale standen Sonderregeln nur
-// im ersten Schritt – die Läufe danach haben sie klaglos wieder kaputtgemacht.
+// Termine vergibt: beim ersten Verteilen, beim Umplanen einer Woche und beim
+// Verbessern der Besetzung. Eine Regel, die nur in einem Schritt steht, wird
+// von den Läufen danach wieder aufgehoben.
 // ============================================================================
 
-import type { Employee } from "../types";
-import { URLAUB_DAYS_PER_YEAR } from "../types";
+import { URLAUB_DAYS_PER_YEAR, type Employee } from "../types";
 import { parseIsoDate, weekdayKeyOf } from "./demand";
-
-/** Urlaubstage dieser Person, als Set für schnelles Nachschlagen. */
-export function vacationSet(employee: Employee): Set<string> {
-  return new Set(employee.vacationDates ?? []);
-}
 
 /**
  * Arbeitet diese Person an diesem Wochentag überhaupt? Leere/fehlende Liste =
@@ -30,11 +20,6 @@ export function worksOnWeekday(employee: Employee, isoDate: string): boolean {
   return tage.includes(weekdayKeyOf(parseIsoDate(isoDate)));
 }
 
-/** Ist die Person an diesem Tag im Urlaub? */
-export function onVacation(employee: Employee, isoDate: string): boolean {
-  return (employee.vacationDates ?? []).includes(isoDate);
-}
-
 /**
  * Hat die Person an diesem Tag schon angefangen? Ohne startDate: immer ja.
  * Der ISO-Stringvergleich reicht, weil "yyyy-MM-dd" lexikografisch = zeitlich.
@@ -44,18 +29,35 @@ export function hasStarted(employee: Employee, isoDate: string): boolean {
 }
 
 /**
+ * Ist die Person an diesem Tag schon weg? Ohne endDate: nie. Der Austritt ist
+ * der LETZTE Arbeitstag, zählt also noch mit.
+ */
+export function hasLeft(employee: Employee, isoDate: string): boolean {
+  return employee.endDate != null && isoDate > employee.endDate;
+}
+
+/** Zählt dieser Tag für den Vertrag dieser Person? (Eintritt … Austritt) */
+export function isEmployedOn(employee: Employee, isoDate: string): boolean {
+  return hasStarted(employee, isoDate) && !hasLeft(employee, isoDate);
+}
+
+/**
  * Die eine Frage, die jeder Planungsschritt stellen muss: darf diese Person an
- * diesem Datum arbeiten? (fester freier Wochentag, Urlaub oder ein Eintritt
- * nach diesem Tag sprechen dagegen)
+ * diesem Datum arbeiten? (fester freier Wochentag, ein Eintritt nach diesem Tag
+ * oder ein Austritt davor sprechen dagegen)
  */
 export function mayWorkOn(employee: Employee, isoDate: string): boolean {
-  return worksOnWeekday(employee, isoDate) && !onVacation(employee, isoDate) && hasStarted(employee, isoDate);
+  return worksOnWeekday(employee, isoDate) && isEmployedOn(employee, isoDate) && !onVacation(employee, isoDate);
+}
+
+/** Hat die Person an diesem Tag Urlaub eingetragen? */
+export function onVacation(employee: Employee, isoDate: string): boolean {
+  return (employee.vacationDates ?? []).includes(isoDate);
 }
 
 /** Wie viele Urlaubstage hat die Person in diesem Jahr eingetragen? */
 export function vacationDaysInYear(employee: Employee, year: number): number {
-  const praefix = `${year}-`;
-  return (employee.vacationDates ?? []).filter((d) => d.startsWith(praefix)).length;
+  return (employee.vacationDates ?? []).filter((d) => d.startsWith(`${year}-`)).length;
 }
 
 /** Jahresanspruch dieser Person in Arbeitstagen. */
@@ -63,12 +65,8 @@ export function vacationEntitlement(employee: Employee): number {
   return URLAUB_DAYS_PER_YEAR[employee.employmentType];
 }
 
-/** Urlaubstage im geplanten Monat, aufsteigend sortiert. */
-export function vacationDatesInMonth(
-  employee: Employee,
-  year: number,
-  month: number,
-): string[] {
-  const praefix = `${year}-${String(month).padStart(2, "0")}-`;
-  return (employee.vacationDates ?? []).filter((d) => d.startsWith(praefix)).sort();
+/** Urlaubstage im Monat, aufsteigend sortiert. */
+export function vacationDatesInMonth(employee: Employee, year: number, month: number): string[] {
+  const prefix = `${year}-${String(month).padStart(2, "0")}-`;
+  return (employee.vacationDates ?? []).filter((d) => d.startsWith(prefix)).sort();
 }

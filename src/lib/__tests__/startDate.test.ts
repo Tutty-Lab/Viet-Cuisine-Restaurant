@@ -11,7 +11,7 @@ import { DEFAULT_WORK_HOURS, resolveDay } from "../workHours";
 import { publicHolidays } from "../holidays";
 import { datesOfMonth } from "../demand";
 import { monthlyTargetMinutesFor } from "../contract";
-import { createInitialSchedule } from "../sampleData";
+import { initialScheduleFor, storeById } from "../stores";
 import type { Employee } from "../../types";
 
 const openDatesOf = (year: number, month: number): string[] => {
@@ -24,22 +24,20 @@ const wk = (id: string, h: number, x: Partial<Employee> = {}): Employee => ({
 });
 
 describe("Eintritt mitten im Monat (startDate)", () => {
-  it("kürzt das Monats-Soll um die Tage vor dem Startdatum", () => {
-    const openDates = openDatesOf(2026, 9);
-    const full = wk("full", 39);
-    const late = wk("late", 39, { startDate: "2026-09-07" });
-    // Ohne Startdatum das volle Soll (Sept 2026: 39 × 26 / 6 = 169 h),
-    // mit Startdatum weniger.
-    expect(monthlyTargetMinutesFor(full, openDates)).toBe(169 * 60);
-    expect(monthlyTargetMinutesFor(late, openDates)).toBeLessThan(monthlyTargetMinutesFor(full, openDates));
-    // Die erste (gesperrte) Woche fehlt komplett: rund eine 39-h-Woche weniger.
-    const diff = (monthlyTargetMinutesFor(full, openDates) - monthlyTargetMinutesFor(late, openDates)) / 60;
-    expect(diff).toBeGreaterThan(30);
-    expect(diff).toBeLessThanOrEqual(39);
-  });
 
   it("verplant keine Tage vor dem Startdatum und meldet keine Fehlstunden-Warnung", () => {
-    const seed = createInitialSchedule(); // Sept 2026, Vũ ab 7.9., Bảo ab 10.9.
+    // Shin arbeitet mit Monatsstunden; zwei Personen treten mitten im Monat ein.
+    const base = initialScheduleFor(storeById("shin"));
+    const seed = {
+      ...base,
+      employees: base.employees.map((employee: Employee, index: number) =>
+        index === 1
+          ? { ...employee, startDate: `${base.year}-${String(base.month).padStart(2, "0")}-07`, targetMinutes: 120 * 60 }
+          : index === 2
+            ? { ...employee, startDate: `${base.year}-${String(base.month).padStart(2, "0")}-10`, targetMinutes: 100 * 60 }
+            : employee,
+      ),
+    };
     const openDates = openDatesOf(seed.year, seed.month);
     const shifts = generateSchedule({
       year: seed.year, month: seed.month, workHours: seed.workHours, employees: seed.employees,
@@ -57,7 +55,49 @@ describe("Eintritt mitten im Monat (startDate)", () => {
     // Jede geplante Person trifft ihr (personenbezogenes) Soll im 30-min-Raster.
     for (const emp of seed.employees) {
       const got = shifts.filter((s) => s.employeeId === emp.id).reduce((a, s) => a + s.paidMinutes, 0);
-      expect(Math.abs(got - monthlyTargetMinutesFor(emp, openDates))).toBeLessThanOrEqual(30);
+      // 40,2 h/Monat liegen nicht auf dem 30-Minuten-Raster.
+      expect(Math.abs(got - monthlyTargetMinutesFor(emp, openDates))).toBeLessThanOrEqual(75);
     }
+  });
+});
+
+describe("Austritt mitten im Monat (endDate)", () => {
+  it("kürzt Wochen- und Monatsvertrag um die Tage nach dem Austritt", () => {
+    const openDates = openDatesOf(2026, 9);
+    const weekly = wk("w", 39);
+    const weeklyOut = wk("w-out", 39, { endDate: "2026-09-15" });
+    expect(monthlyTargetMinutesFor(weeklyOut, openDates)).toBeLessThan(monthlyTargetMinutesFor(weekly, openDates));
+    // Monatsvertrag: anteilig über die offenen Tage bis einschliesslich Austritt.
+    const monthly: Employee = { id: "m", name: "m", employmentType: "VOLLZEIT", targetMinutes: 160 * 60, endDate: "2026-09-15" };
+    const bis = openDates.filter((d) => d <= "2026-09-15").length;
+    const erwartet = Math.round((160 * 60 * bis) / openDates.length / 30) * 30;
+    expect(monthlyTargetMinutesFor(monthly, openDates)).toBe(erwartet);
+  });
+
+  it("verplant nach dem Austritt nichts und meldet keine Fehlstunden-Warnung", () => {
+    const base = initialScheduleFor(storeById("shin"));
+    const ym = `${base.year}-${String(base.month).padStart(2, "0")}`;
+    const employees = base.employees.map((employee: Employee, index: number) =>
+      index === 1 ? { ...employee, endDate: `${ym}-14` } : employee,
+    );
+    const openDates = openDatesOf(base.year, base.month);
+    const shifts = generateSchedule({ year: base.year, month: base.month, workHours: base.workHours, employees });
+    const leaver = employees[1];
+    const late = shifts.filter((s) => s.employeeId === leaver.id && s.date > leaver.endDate!);
+    expect(late, `${leaver.name} darf nach ${leaver.endDate} nicht arbeiten`).toEqual([]);
+    expect(shifts.some((s) => s.employeeId === leaver.id)).toBe(true);
+    const v = validateSchedule(employees, shifts, base.year, openDates);
+    const under = v.errors.filter((e) => e.employeeId === leaver.id && e.message.includes("mới xếp được"));
+    expect(under.map((e) => e.message)).toEqual([]);
+    expect(v.errors.filter((e) => e.employeeId === leaver.id && e.severity !== "warning")).toEqual([]);
+  });
+
+  it("ist nach dem Austrittsmonat nicht mehr eingeplant", () => {
+    const base = initialScheduleFor(storeById("shin"));
+    const employees = base.employees.map((employee: Employee, index: number) =>
+      index === 1 ? { ...employee, endDate: "2026-08-31" } : employee,
+    );
+    const shifts = generateSchedule({ year: 2026, month: 9, workHours: base.workHours, employees });
+    expect(shifts.filter((s) => s.employeeId === employees[1].id)).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
 // ============================================================================
-// Kundennachfrage-Konzept: Tagesgewichte + gewünschte Spätschicht-Anteile.
+// Kundennachfrage-Konzept: Tagesgewichte je Wochentag.
 // ============================================================================
 
 import { eachDayOfInterval, endOfMonth, format, getDay, startOfMonth } from "date-fns";
@@ -15,11 +15,8 @@ export type WeekdayKey =
 
 /**
  * Nachfrage-Gewichte je Wochentag (keine Mitarbeiterzahlen!).
- *
- * Angabe des Betriebs: am stärksten sind Freitag, Samstag und Sonntag –
- * "cao gấp rưỡi" (rund das Anderthalbfache eines normalen Tages). Deshalb
- * stehen Fr/Sa/So auf 1,5 und die übrigen offenen Tage (Di–Do) auf 1,0.
- * Montag ist geschlossen.
+ * Viet Cuisine: Freitag bis Sonntag sind Stoßtage (1,5), Di–Do 1,0. Montag
+ * Ruhetag; Feiertage zählen wie Sonntag.
  */
 export const DAY_WEIGHTS: Record<WeekdayKey, number> = {
   monday: 1.0, // geschlossen (Gewicht nur relevant, falls doch geöffnet)
@@ -29,25 +26,6 @@ export const DAY_WEIGHTS: Record<WeekdayKey, number> = {
   friday: 1.5,
   saturday: 1.5,
   sunday: 1.5,
-};
-
-/**
- * Gewünschter Anteil an Spätschicht-Stunden je Wochentag.
- *
- * Viet Cuisine ist ein Restaurant mit Abendgeschäft; die Stoßzeit liegt 18:00–
- * 20:00. Di–Sa gibt es eine Mittagsschließung (14:30–16:30), der Nachmittag/
- * Abend (16:30–22:30) ist der stärkere Block – deshalb ÜBER der Hälfte. Am
- * Sonntag ist zusätzlich der Mittag stark ("buổi trưa chủ nhật đông"), deshalb
- * dort ausgeglichener.
- */
-export const LATE_SHIFT_RATIOS: Record<WeekdayKey, number> = {
-  monday: 0.6,
-  tuesday: 0.6,
-  wednesday: 0.6,
-  thursday: 0.6,
-  friday: 0.65,
-  saturday: 0.65,
-  sunday: 0.5,
 };
 
 /** date-fns getDay(): 0=So ... 6=Sa  ->  WeekdayKey. */
@@ -111,14 +89,6 @@ export function datesOfMonth(year: number, month: number): string[] {
   const first = startOfMonth(new Date(year, month - 1, 1));
   const last = endOfMonth(first);
   return eachDayOfInterval({ start: first, end: last }).map((d) => format(d, "yyyy-MM-dd"));
-}
-
-export function dayWeightOf(isoDate: string): number {
-  return DAY_WEIGHTS[weekdayKeyOf(parseIsoDate(isoDate))];
-}
-
-export function lateRatioOf(isoDate: string): number {
-  return LATE_SHIFT_RATIOS[weekdayKeyOf(parseIsoDate(isoDate))];
 }
 
 /** ISO "yyyy-MM-dd" -> lokales Date (ohne Zeitzonen-Verschiebung). */

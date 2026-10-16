@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { onVacation } from "../lib/availability";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Shift } from "../types";
 import {
@@ -9,17 +10,26 @@ import {
 } from "../lib/demand";
 import { minutesToShortHours, minutesToTime } from "../lib/time";
 import { signedHours } from "../lib/dateFormat";
-import { monthLabel } from "../lib/shiftOps";
 import { isDayClosed } from "../lib/workHours";
 import { publicHolidays } from "../lib/holidays";
 import { ShiftCellEditor } from "./ShiftCellEditor";
 import { ScheduleDayView } from "./ScheduleDayView";
+import { StundenzettelTab } from "./StundenzettelTab";
 import { weeksOfMonth } from "../lib/weeks";
 import { employmentShortVi } from "../lib/employment";
 import { monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES } from "../lib/contract";
 import { StaffingReport } from "./StaffingReport";
-import { PauseLabel } from "./PauseLabel";
-import { CoverageChart } from "./CoverageChart";
+import type { PeakCoverage } from "../lib/analyze";
+import { ruleById, staffingRuleId } from "../lib/rules";
+
+/** „17", „11½" (halbe Stunde), sonst „11:15" – so bleibt die Zelle schmal. */
+function shortTime(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (m === 0) return String(h);
+  if (m === 30) return `${h}½`;
+  return minutesToTime(minutes);
+}
 
 function isWeekendKey(iso: string): boolean {
   const k = weekdayKeyOf(parseIsoDate(iso));
@@ -32,35 +42,21 @@ function cellClass(shift: Shift | undefined): string {
   return `${base} ${!shift.generated ? "shift-custom" : ""}`;
 }
 
-export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
-  // Drucken (Monat/Woche) und Entsperren liegen im Tab „Bảng chấm công" –
-  // dort sitzt alles, was Papier erzeugt.
-  const { schedule, validation, generate, genError, genStamp, isLocked, openDates } = store;
+export function ScheduleTab({
+  store,
+  mode,
+}: {
+  store: UseScheduleReturn;
+  /** Tab „Chấm công" (Stundenzettel + PDF) oder Tab „Lịch" – Tháng/Tuần/Ngày gilt nur für den Lịch. */
+  mode: "schedule" | "timesheet";
+}) {
+  // Drucken (Monat/Woche) und Entsperren liegen in der Ansicht „Chấm công"
+  // (StundenzettelTab) – dort sitzt alles, was Papier erzeugt.
+  // Nút „Tạo lịch làm việc" và popup nằm trên thanh tab (App.tsx).
+  const { schedule, validation, isLocked, openDates } = store;
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
-  // Zweiter Klick, um einen gesperrten (gedruckten) Monat neu zu erzeugen –
-  // ohne native Rückfrage, die manche In-App-Browser verschlucken.
-  const [confirmRegen, setConfirmRegen] = useState(false);
-  // Kurze Erfolgsmeldung nach dem Erzeugen. genStamp steigt bei jedem
-  // erfolgreichen Lauf; der Effekt liest DANACH die (frische) Prüfung aus.
-  const [toast, setToast] = useState<string | null>(null);
-  useEffect(() => {
-    if (genStamp === 0) return;
-    const fehler = validation.errors.filter((e) => e.severity !== "warning").length;
-    const warn = validation.errors.filter((e) => e.severity === "warning").length;
-    setToast(
-      fehler > 0
-        ? `Đã tạo lịch — nhưng còn ${fehler} lỗi, xem chi tiết ở phần trạng thái.`
-        : warn > 0
-          ? `✓ Đã tạo lịch mới (còn ${warn} cảnh báo thiếu giờ — bấm (i) để xem).`
-          : "✓ Đã tạo lịch mới — hợp lệ, giờ chia đều cho mọi người.",
-    );
-    const t = window.setTimeout(() => setToast(null), 5000);
-    return () => window.clearTimeout(t);
-  }, [genStamp]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Mặc định: điện thoại -> xem theo ngày, màn lớn -> bảng tháng.
-  const [view, setView] = useState<"grid" | "day" | "week" | "coverage">(() =>
-    typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches ? "day" : "grid",
-  );
+  // Mặc định luôn là cả tháng (theo yêu cầu của quán).
+  const [view, setView] = useState<"grid" | "day" | "week">("grid");
   const [weekIndex, setWeekIndex] = useState(0);
 
   const dates = useMemo(
@@ -123,13 +119,14 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
 
   // Tổng theo ngày cho các dòng chân bảng.
   const dayStats = useMemo(() => {
+    // „Số nhân viên" zählt PERSONEN, nicht Dienste: wer mittags und abends
+    // arbeitet, ist trotzdem eine Person. Die Zahl der Dienste steht daneben,
+    // sonst sieht ein Tag mit lauter geteilten Diensten doppelt besetzt aus.
     const stats = new Map<string, { people: Set<string>; shifts: number; total: number; early: number; late: number }>();
     for (const d of dates) stats.set(d, { people: new Set(), shifts: 0, total: 0, early: 0, late: 0 });
     for (const s of schedule.shifts) {
       const st = stats.get(s.date);
       if (!st) continue;
-      // „Số nhân viên" zählt PERSONEN – wer mittags und abends arbeitet, ist
-      // eine Person mit zwei Diensten (Zeile „Số ca" darunter).
       st.people.add(s.employeeId);
       st.shifts += 1;
       st.total += s.paidMinutes;
@@ -139,201 +136,90 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
     return stats;
   }, [dates, schedule.shifts]);
 
-  const hasSplitSunday = useMemo(() => {
-    const holidays = publicHolidays(schedule.year);
-    for (const s of schedule.shifts) {
-      if (weekdayKeyOf(parseIsoDate(s.date)) === "sunday" || holidays.has(s.date)) {
-        const count = schedule.shifts.filter(
-          (other) => other.date === s.date && other.employeeId === s.employeeId,
-        ).length;
-        if (count > 1 || s.paidMinutes > 7 * 60) return true;
-      }
+  // Chân bảng „ít nhất … người" je Besetzungsregel (wie Thienlong, ohne Bếp/Bồi):
+  // dieselben Zahlen, die auch die Prüfung benutzt – Tag → Label → Spannen.
+  const peaksByDay = useMemo(() => {
+    const map = new Map<string, { targetHours: number; byLabel: Map<string, PeakCoverage[]> }>();
+    for (const day of store.analysis.days) {
+      const byLabel = new Map<string, PeakCoverage[]>();
+      for (const peak of day.peaks) byLabel.set(peak.label, [...(byLabel.get(peak.label) ?? []), peak]);
+      map.set(day.date, { targetHours: day.targetHours, byLabel });
     }
-    return false;
-  }, [schedule.year, schedule.shifts]);
+    return map;
+  }, [store.analysis]);
+  const staffingRows = store.storeConfig.staffingRules;
 
-  const hasEmployees = schedule.employees.length > 0;
+  const hasEmployees = store.activeEmployees.length > 0;
 
   return (
     <section>
       {/* Alles Sichtbare liegt im no-print-Block; beim Drucken bleibt nur der
           Druckbereich ganz unten übrig. */}
       <div className="no-print">
-      {/* Thanh thao tác */}
-      <div className="flex flex-wrap items-center gap-2 mb-3">
-        <button
-          onClick={() => {
-            // Gesperrter Monat: erst nachfragen, dann neu erzeugen (die
-            // Erzeugung hebt die Sperre auf und löscht die Wochen-Häkchen).
-            if (isLocked && !confirmRegen) {
-              setConfirmRegen(true);
-              return;
-            }
-            generate();
-            setConfirmRegen(false);
-          }}
-          disabled={!hasEmployees}
-          className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
-        >
-          Tạo lịch làm việc
-        </button>
-        {confirmRegen && (
-          <button
-            onClick={() => setConfirmRegen(false)}
-            className="rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            Huỷ
-          </button>
-        )}
-        <span className="ml-auto text-sm text-slate-500">{monthLabel(schedule.year, schedule.month)}</span>
-      </div>
-
-      {/* Erfolgsmeldung nach „Tạo lịch". Verschwindet nach ein paar Sekunden;
-          Details zu Warnungen/Fehlern stehen aufklappbar oben im Dashboard. */}
-      {toast && (
-        <div
-          role="status"
-          className={`mb-3 flex items-start gap-2 rounded border px-3 py-2 text-sm ${
-            toast.startsWith("✓")
-              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-              : "bg-amber-50 border-amber-200 text-amber-900"
-          }`}
-        >
-          <span className="flex-1">{toast}</span>
-          <button
-            type="button"
-            onClick={() => setToast(null)}
-            className="shrink-0 opacity-60 hover:opacity-100"
-            aria-label="Đóng"
-          >
-            ×
-          </button>
-        </div>
-      )}
-
-      {hasSplitSunday && (
-        <div className="mb-3 rounded-lg bg-blue-50 border border-blue-300 p-3 text-blue-950 text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
-          <div>
-            <div className="font-semibold flex items-center gap-1.5 text-blue-900">
-              <span>💡 Cập nhật mới: Lịch chia đều theo hợp đồng tuần</span>
-            </div>
-            <p className="text-xs text-blue-800 mt-0.5">
-              Lịch hiện tại đang là bản cũ (Chủ nhật bị dồn ca 8h–9h hoặc chia 2 ca sáng/chiều). Hãy bấm nút bên cạnh để cập nhật sang <b>ca đều (5h–7h)</b> chuẩn theo giờ tuần.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              generate();
-              setConfirmRegen(false);
-            }}
-            className="whitespace-nowrap rounded bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 active:bg-blue-800 shadow"
-          >
-            🔄 Cập nhật lại lịch chuẩn ngay
-          </button>
-        </div>
-      )}
-
-      {/* Rückfrage vor dem Neu-Erzeugen eines gedruckten Monats. */}
-      {isLocked && confirmRegen && (
-        <div className="mb-3 rounded bg-amber-50 border border-amber-300 text-amber-900 text-sm px-3 py-2">
-          Tháng này đã in &amp; khóa. <b>Tạo lại lịch sẽ mở khóa tháng và xóa dấu các tuần đã in</b> —
-          bản đã treo ở quán sẽ không còn khớp. Bấm lại <b>„Tạo lịch làm việc"</b> để tiếp tục.
-        </div>
-      )}
-
       {/*
-        Nur ein kurzer Hinweis - Drucken und Entsperren sitzen im Tab
-        "Bang cham cong". Ohne diesen Hinweis klickt man hier auf eine Zelle
-        und nichts passiert, ohne zu erfahren warum.
+        Eine Leiste (die Tabs Chấm công / Lịch sitzen in App.tsx): die
+        Bedienung der Ansicht (Lịch: Tháng/Tuần/Ngày, bei Tuần die Wochenwahl)
+        und „Xuất PDF". Sperr-Hinweis mit Mở khóa kommt ebenfalls von dort.
       */}
-      {isLocked && !confirmRegen && (
-        <div className="mb-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-sm px-3 py-2">
-          Lịch tháng này đã khóa vì đã in
-          {schedule.lockedAt && ` lúc ${new Date(schedule.lockedAt).toLocaleString("vi-VN")}`} — chỉ
-          xem, không sửa được. Mở khóa ở tab <b>Bảng chấm công</b>, hoặc bấm{" "}
-          <b>„Tạo lịch làm việc"</b> để tạo lại (sẽ mở khóa).
-        </div>
-      )}
-
-      {/* Chuyển chế độ xem */}
       {hasEmployees && (
-        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 mb-3">
-          <button
-            onClick={() => setView("day")}
-            aria-pressed={view === "day"}
-            className={`px-3 py-1.5 text-sm rounded-md ${
-              view === "day" ? "bg-slate-900 text-white" : "text-slate-600"
-            }`}
-          >
-            Theo ngày
-          </button>
-          <button
-            onClick={() => setView("week")}
-            aria-pressed={view === "week"}
-            className={`px-3 py-1.5 text-sm rounded-md ${
-              view === "week" ? "bg-slate-900 text-white" : "text-slate-600"
-            }`}
-          >
-            Theo tuần
-          </button>
-          <button
-            onClick={() => setView("grid")}
-            aria-pressed={view === "grid"}
-            className={`px-3 py-1.5 text-sm rounded-md ${
-              view === "grid" ? "bg-slate-900 text-white" : "text-slate-600"
-            }`}
-          >
-            Bảng tháng
-          </button>
-          <button
-            onClick={() => setView("coverage")}
-            aria-pressed={view === "coverage"}
-            className={`px-3 py-1.5 text-sm rounded-md ${
-              view === "coverage" ? "bg-slate-900 text-white" : "text-slate-600"
-            }`}
-          >
-            Độ phủ
-          </button>
-        </div>
-      )}
-
-      {/* Wochenwahl für Dienstplan und Besetzungsdiagramm. */}
-      {hasEmployees && (view === "week" || view === "coverage") && (
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          {weeks.map((w, idx) => {
-            const printed = (schedule.printedWeeks ?? []).includes(w.weekStart);
-            return (
+        <StundenzettelTab
+          stores={[store]}
+          mode={mode}
+          toolbarRight={
+            <>
+          {view === "week" && weeks.length > 0 && (
+            <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white">
               <button
-                key={w.weekStart}
-                onClick={() => setWeekIndex(idx)}
-                aria-pressed={idx === weekIndex}
-                className={`rounded border px-3 py-1.5 text-sm ${
-                  idx === weekIndex
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-                title={printed ? "Tuần này đã in" : undefined}
+                type="button"
+                onClick={() => setWeekIndex((i) => Math.max(0, i - 1))}
+                disabled={weekIndex === 0}
+                aria-label="Tuần trước"
+                className="px-2.5 py-1.5 text-slate-600 disabled:opacity-30"
               >
-                {w.label}
-                {printed && " ✓"}
+                ‹
               </button>
-            );
-          })}
-          {view === "week" && <span className="text-xs text-slate-500">In tuần ở tab „Bảng chấm công".</span>}
-        </div>
+              <select
+                aria-label="Tuần"
+                value={Math.min(weekIndex, weeks.length - 1)}
+                onChange={(e) => setWeekIndex(Number(e.target.value))}
+                className="border-x border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800"
+              >
+                {weeks.map((w, idx) => (
+                  <option key={w.weekStart} value={idx}>
+                    {w.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setWeekIndex((i) => Math.min(weeks.length - 1, i + 1))}
+                disabled={weekIndex >= weeks.length - 1}
+                aria-label="Tuần sau"
+                className="px-2.5 py-1.5 text-slate-600 disabled:opacity-30"
+              >
+                ›
+              </button>
+            </div>
+          )}
+            <select
+              aria-label="Xem theo"
+              value={view}
+              onChange={(e) => setView(e.target.value as typeof view)}
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800"
+            >
+              <option value="grid">Tháng</option>
+              <option value="week">Tuần</option>
+              <option value="day">Ngày</option>
+            </select>
+            </>
+          }
+        />
       )}
 
-      {schedule.shifts.length > 0 && <StaffingReport analysis={store.analysis} />}
-
-      {genError && (
-        <div className="mb-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2">
-          {genError}
-        </div>
-      )}
+      {mode === "schedule" && schedule.shifts.length > 0 && <StaffingReport analysis={store.analysis} />}
 
       {/* Lỗi kiểm tra */}
-      {!validation.valid && schedule.shifts.length > 0 && (
+      {mode === "schedule" && !validation.valid && schedule.shifts.length > 0 && (
         <div className="mb-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2">
           <div className="font-medium mb-1">Lỗi kiểm tra ({validation.errors.length}):</div>
           <ul className="list-disc pl-5 space-y-0.5 max-h-40 overflow-auto">
@@ -345,7 +231,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
       )}
 
       {/* Chú thích (bảng tháng và bảng tuần dùng chung lưới) */}
-      {(view === "grid" || view === "week") && (
+      {mode === "schedule" && (view === "grid" || view === "week") && (
         <div className="flex flex-wrap gap-3 mb-2 text-xs text-slate-600">
           <span className="inline-flex items-center gap-1">
             <span className="inline-block h-3 w-3 rounded border shift-early" /> Ca sáng
@@ -366,20 +252,16 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         <div className="rounded bg-white border border-slate-200 p-6 text-center text-slate-400">
           Vui lòng thêm nhân viên trước.
         </div>
-      ) : view === "day" ? (
+      ) : mode === "timesheet" ? null : view === "day" ? (
         <ScheduleDayView store={store} onEdit={(employeeId, date) => setSelected({ employeeId, date })} />
-      ) : view === "coverage" ? (
-        <CoverageChart schedule={schedule} dates={weeks[Math.min(weekIndex, weeks.length - 1)]?.dates ?? dates} />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white -mx-3 sm:mx-0">
           <table className="border-collapse text-xs">
             <thead>
               <tr>
-                <th className="sticky left-0 z-20 bg-slate-100 border-b border-r border-slate-200 px-2 py-2 text-left min-w-[130px]">
+                <th className="sticky left-0 z-20 bg-slate-100 border-b border-r border-slate-200 px-1.5 py-1 text-left w-[80px] max-w-[80px]">
                   Nhân viên
                 </th>
-                <th className="bg-slate-100 border-b border-slate-200 px-2 py-2 text-left">Loại</th>
-                <th className="bg-slate-100 border-b border-slate-200 px-2 py-2 text-right">Định mức</th>
                 {gridDates.map((d) => {
                   const day = parseIsoDate(d).getDate();
                   const wk = WEEKDAY_SHORT_VI[weekdayKeyOf(parseIsoDate(d))];
@@ -402,12 +284,12 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                             ? `Giờ riêng${ov.note ? " · " + ov.note : ""}`
                             : undefined
                       }
-                      className={`border-b border-l border-slate-200 px-1 py-1 text-center min-w-[88px] ${headerBg}`}
+                      className={`border-b border-l border-slate-200 px-0.5 py-1 text-center min-w-[40px] ${headerBg}`}
                     >
                       <div className="font-semibold">{day}</div>
                       <div className="text-[10px] text-slate-500">{wk}</div>
-                      {closed && <div className="text-[9px] text-rose-600 font-medium">Đóng cửa</div>}
-                      {!closed && ov && <div className="text-[9px] text-sky-700 font-medium">Giờ riêng</div>}
+                      {closed && <div className="text-[9px] text-rose-600 font-medium">Đóng</div>}
+                      {!closed && ov && <div className="text-[9px] text-sky-700 font-medium">Riêng</div>}
                     </th>
                   );
                 })}
@@ -420,20 +302,18 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
               </tr>
             </thead>
             <tbody>
-              {schedule.employees.map((emp) => {
+              {store.activeEmployees.map((emp) => {
                 const sum = summaryByEmp.get(emp.id);
-                const sollMin = monthlyTargetMinutesFor(emp, openDates);
+                const sollMin = monthlyTargetMinutesFor(emp, openDates, schedule.workHours);
                 const diff = sum?.diffMinutes ?? -sollMin;
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50/50">
-                    <td className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 px-2 py-1 font-medium whitespace-nowrap">
+                    {/* Nur der Name (gekürzt); Art und Soll stehen im Tab Nhân viên – so passen mehr Tage auf den Schirm. */}
+                    <td
+                      className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 px-1.5 py-1 font-medium w-[80px] max-w-[80px] truncate"
+                      title={`${emp.name} · ${employmentShortVi(emp.employmentType)} · ${minutesToShortHours(sollMin)}`}
+                    >
                       {emp.name}
-                    </td>
-                    <td className="border-b border-slate-100 px-2 py-1 text-slate-500">
-                      {employmentShortVi(emp.employmentType)}
-                    </td>
-                    <td className="border-b border-slate-100 px-2 py-1 text-right text-slate-500">
-                      {minutesToShortHours(sollMin)}
                     </td>
                     {gridDates.map((d) => {
                       const dienste = shiftMap.get(`${emp.id}#${d}`) ?? [];
@@ -442,46 +322,22 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                         <td
                           key={d}
                           onClick={() => setSelected({ employeeId: emp.id, date: d })}
-                          className={`border-b border-l border-slate-200 px-1 py-1 text-center cursor-pointer align-middle ${cellClass(
+                          className={`border-b border-l border-slate-200 px-0.5 py-1 text-center cursor-pointer align-middle ${cellClass(
                             shift,
                           )}`}
                           title="Bấm để sửa"
                         >
                           {shift ? (
-                            <div className="leading-tight space-y-1">
-                              {dienste.map((x, idx) => {
-                                const isMulti = dienste.length > 1;
-                                const shiftTag = isMulti
-                                  ? idx === 0
-                                    ? "Ca sáng"
-                                    : idx === 1
-                                      ? "Ca chiều"
-                                      : `Ca ${idx + 1}`
-                                  : null;
-                                return (
-                                  <div
-                                    key={x.id}
-                                    className={idx > 0 ? "border-t border-slate-200/90 pt-1 mt-0.5" : ""}
-                                  >
-                                    <div className="font-medium flex items-center justify-center gap-1">
-                                      {shiftTag && (
-                                        <span className="inline-block text-[9px] font-semibold text-slate-600 bg-slate-100/90 border border-slate-300/80 rounded px-1">
-                                          {shiftTag}
-                                        </span>
-                                      )}
-                                      <span>
-                                        {minutesToTime(x.startMinutes)}–{minutesToTime(x.endMinutes)}
-                                      </span>
-                                    </div>
-                                    <div className="text-[10px] opacity-80">
-                                      {minutesToShortHours(x.paidMinutes)} · <PauseLabel shift={x} />
-                                    </div>
-                                  </div>
-                                );
-                              })}
+                            // Kurz: „11:30–15" / „17–22" je Dienst untereinander.
+                            <div className="leading-tight whitespace-nowrap text-[10px] font-medium">
+                              {dienste.map((x) => (
+                                <div key={x.id}>
+                                  {shortTime(x.startMinutes)}–{shortTime(x.endMinutes)}
+                                </div>
+                              ))}
                             </div>
                           ) : (
-                            <span className="text-[11px]">Nghỉ</span>
+                            onVacation(emp, d) ? <span className="text-[10px] font-medium text-teal-700">Phép</span> : <span className="text-[10px] text-slate-300">–</span>
                           )}
                         </td>
                       );
@@ -508,8 +364,27 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                 dates={gridDates}
                 value={(d) => minutesToShortHours(dayStats.get(d)!.total)}
               />
+              <SummaryRow
+                label="Giờ mục tiêu"
+                hint="theo hệ số ngày"
+                dates={gridDates}
+                value={(d) => {
+                  const day = peaksByDay.get(d);
+                  return day && day.targetHours > 0 ? minutesToShortHours(Math.round(day.targetHours * 2) * 30) : "–";
+                }}
+              />
               <SummaryRow label="Ca sáng" dates={gridDates} value={(d) => String(dayStats.get(d)!.early)} />
               <SummaryRow label="Ca tối" dates={gridDates} value={(d) => String(dayStats.get(d)!.late)} />
+              {schedule.shifts.length > 0 && staffingRows.map((rule) => (
+                <CoverageRow
+                  key={rule.label}
+                  label={rule.label}
+                  when={rule.when}
+                  hard={ruleById(staffingRuleId(rule.label)).kind === "hard"}
+                  dates={gridDates}
+                  peaks={(d) => peaksByDay.get(d)?.byLabel.get(rule.label)}
+                />
+              ))}
             </tfoot>
           </table>
         </div>
@@ -531,25 +406,92 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
 
 function SummaryRow({
   label,
+  hint,
   dates,
   value,
 }: {
   label: string;
+  hint?: string;
   dates: string[];
   value: (d: string) => string;
 }) {
   return (
     <tr className="bg-slate-50 text-slate-600">
-      <td className="sticky left-0 z-10 bg-slate-50 border-t border-r border-slate-200 px-2 py-1 font-medium whitespace-nowrap">
+      <td className="sticky left-0 z-10 bg-slate-50 border-t border-r border-slate-200 px-1.5 py-1 font-medium w-[80px] max-w-[80px] text-[10px] leading-tight">
         {label}
+        {hint && <span className="ml-1 text-[11px] font-normal text-slate-400">{hint}</span>}
       </td>
-      <td className="border-t border-slate-200" />
-      <td className="border-t border-slate-200" />
       {dates.map((d) => (
         <td key={d} className="border-t border-l border-slate-200 px-1 py-1 text-center">
           {value(d)}
         </td>
       ))}
+      <td className="border-t border-l border-slate-200" />
+      <td className="border-t border-l border-slate-200" />
+    </tr>
+  );
+}
+
+/**
+ * Eine Besetzungsregel als Zeile: wie viele Leute in der Spanne da sind, als
+ * „vắng–đông" (kleinste–größte Zahl; bei „Trong giờ mở cửa" über beide Blöcke).
+ * Nur die kleinste Zahl zu zeigen las sich wie „abends weniger Leute", obwohl
+ * nur die letzte Stunde dünner war. Zu wenig → roter Rahmen „cần N",
+ * zu viele → gelber Rahmen „tối đa N". Gleiche Zahlen wie in der Prüfung.
+ */
+function CoverageRow({
+  label,
+  when,
+  hard,
+  dates,
+  peaks,
+}: {
+  label: string;
+  when: string;
+  hard: boolean;
+  dates: string[];
+  peaks: (d: string) => PeakCoverage[] | undefined;
+}) {
+  return (
+    <tr className="bg-slate-50 text-slate-600">
+      <td
+        className="sticky left-0 z-10 bg-slate-50 border-t border-r border-slate-200 px-1.5 py-1 font-medium w-[80px] max-w-[80px] text-[10px] leading-tight"
+        title={`${hard ? "Luật cứng" : "Luật mềm"}: ${label} ${when}`}
+      >
+        {label} <span className="text-[11px] font-normal text-slate-400">{when} · người (vắng–đông)</span>
+        <span
+          className={`ml-1 rounded px-1 text-[10px] font-medium ${hard ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-800"}`}
+        >
+          {hard ? "cứng" : "mềm"}
+        </span>
+      </td>
+      {dates.map((d) => {
+        const list = peaks(d);
+        if (!list || list.length === 0) {
+          return (
+            <td key={d} className="border-t border-l border-slate-200 px-1 py-1 text-center text-slate-300">
+              –
+            </td>
+          );
+        }
+        const min = Math.min(...list.map((p) => p.minStaff));
+        const max = Math.max(...list.map((p) => p.maxStaff));
+        const need = Math.max(...list.map((p) => p.required));
+        const allowed = Math.min(...list.map((p) => p.allowed));
+        const short = list.some((p) => p.minStaff < p.required);
+        return (
+          <td
+            key={d}
+            className={`border-t border-l border-slate-200 px-1 py-1 text-center ${
+              short ? "bg-rose-50 font-semibold text-rose-700 outline outline-2 -outline-offset-2 outline-rose-500" : ""
+            }`}
+            title={`ít nhất ${min}, đông nhất ${max} · luật: ${need}${Number.isFinite(allowed) ? `–${allowed}` : "+"} người`}
+          >
+            {min === max ? min : `${min}–${max}`}
+            {short && <span className="block text-[10px] leading-none">cần {need}</span>}
+          </td>
+        );
+      })}
       <td className="border-t border-l border-slate-200" />
       <td className="border-t border-l border-slate-200" />
     </tr>

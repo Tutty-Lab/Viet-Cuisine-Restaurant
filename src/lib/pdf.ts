@@ -23,12 +23,14 @@ import {
   datesOfMonth,
   parseIsoDate,
   WEEKDAY_LABELS_DE,
+  WEEKDAY_SHORT_DE,
   weekdayKeyOf,
 } from "./demand";
 import { minutesToDecimalHours, minutesToTime } from "./time";
 import { MONTH_NAMES_DE } from "./dateFormat";
 import { employmentLabelDe } from "./employment";
-import { publicHolidayNames } from "./holidays";
+import { publicHolidayNames, publicHolidays } from "./holidays";
+import { isDayClosed } from "./workHours";
 import { format } from "date-fns";
 
 /** Dateiname säubern: Umlaute/Akzente weg, nur unbedenkliche Zeichen behalten. */
@@ -507,15 +509,39 @@ export async function buildStundenzettelPdf(
   opts: { dates?: string[]; periodLabel?: string } = {},
   onProgress?: (current: number, total: number) => void,
 ): Promise<jsPDF> {
-  const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
-  const dates = opts.dates ?? datesOfMonth(schedule.year, schedule.month);
-  const periodLabel = opts.periodLabel ?? monthLabelDe(schedule.year, schedule.month);
+  return buildStundenzettelPdfFor([{ schedule, employees }], opts, onProgress);
+}
 
-  for (let i = 0; i < employees.length; i++) {
-    if (i > 0) doc.addPage();
-    drawStundenzettel(doc, schedule, employees[i], dates, periodLabel);
-    onProgress?.(i + 1, employees.length);
-    if (employees.length > 1) await new Promise((r) => setTimeout(r, 0));
+/** Eine Filiale mit den Mitarbeitern, die in die PDF sollen. */
+export type StundenzettelJob = { schedule: Schedule; employees: Employee[] };
+
+/**
+ * Stundenzettel-PDF über MEHRERE Filialen: alle Seiten landen in EINER Datei,
+ * in der Reihenfolge der Filialen. Der Betrieb druckt beide Läden zusammen aus,
+ * deshalb ist ein einziges Dokument richtig – nicht zwei Downloads.
+ */
+export async function buildStundenzettelPdfFor(
+  jobs: StundenzettelJob[],
+  opts: { dates?: string[]; periodLabel?: string } = {},
+  onProgress?: (current: number, total: number) => void,
+): Promise<jsPDF> {
+  const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
+  const total = jobs.reduce((sum, job) => sum + job.employees.length, 0);
+  let done = 0;
+
+  for (const job of jobs) {
+    const dates = opts.dates ?? datesOfMonth(job.schedule.year, job.schedule.month);
+    const periodLabel = opts.periodLabel ?? monthLabelDe(job.schedule.year, job.schedule.month);
+    for (const employee of job.employees) {
+      if (done > 0) doc.addPage();
+      drawStundenzettel(doc, job.schedule, employee, dates, periodLabel);
+      // Zähler NICHT im optionalen Aufruf hochzählen: ohne onProgress würde
+      // onProgress?.(++done) gar nicht ausgewertet – dann lägen alle Seiten
+      // übereinander auf Seite 1.
+      done += 1;
+      onProgress?.(done, total);
+      if (total > 1) await new Promise((r) => setTimeout(r, 0));
+    }
   }
 
   return doc;
@@ -524,14 +550,18 @@ export async function buildStundenzettelPdf(
 // ── Datei ausliefern ─────────────────────────────────────────────────────────
 
 /**
- * PDF-Blob direkt als Datei herunterladen. MIME application/octet-stream +
- * .pdf-Name => auch iOS Safari / In-App-Browser speichern die Datei, statt sie
- * in einen neuen Tab zu öffnen und dort hängen zu bleiben.
+ * PDF-Blob direkt als Datei herunterladen (Attribut download).
+ *
+ * MIME bleibt application/pdf: Früher stand hier application/octet-stream –
+ * ein In-App-Browser, der „download" ignoriert (Messenger/Zalo-WebView),
+ * öffnete die Datei dann als TEXT, also eine Seite voller Zeichensalat. Mit
+ * application/pdf zeigt er im schlimmsten Fall das PDF an. Echte Browser
+ * (Chrome, Safari, Firefox) speichern wegen „download" trotzdem.
  */
 export function deliver(blob: Blob, filename: string): void {
   if (typeof document === "undefined") return;
-  const octet = new Blob([blob], { type: "application/octet-stream" });
-  const url = URL.createObjectURL(octet);
+  const pdf = blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" });
+  const url = URL.createObjectURL(pdf);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
@@ -548,4 +578,281 @@ export function deliver(blob: Blob, filename: string): void {
 /** jsPDF-Dokument als Datei speichern. */
 export function savePdf(doc: jsPDF, filename: string): void {
   deliver(doc.output("blob"), filename);
+}
+
+// ── Dienstplan (Lịch làm việc, zum Aushang im Laden) ────────────────────────
+//
+// Auch hier echtes Vektor-PDF statt Screenshot. Zwei Ausrichtungen, genau wie
+// der Ausdruck am Bildschirm:
+//   "byEmployee" – Mitarbeiter als Zeilen, Tage als Spalten (eine Woche).
+//   "byDate"     – Tage als Zeilen, Mitarbeiter als Spalten (ganzer Monat);
+//                  quer, weil ein Monat mit vielen Leuten hochkant nicht passt.
+
+export type SchedulePdfLayout = "byEmployee" | "byDate";
+
+type GridColumn = { w: number; align: "left" | "center" | "right" };
+type GridRow = { cells: string[][]; shaded: boolean; strong?: boolean };
+
+/**
+ * Zeichnet ein Gitter mit festen Spaltenbreiten und gibt die Unterkante zurück.
+ * Eine Zelle ist eine Liste von Textzeilen; die erste Zeile ist die „starke".
+ */
+function drawGrid(
+  doc: jsPDF,
+  x0: number,
+  y0: number,
+  columns: GridColumn[],
+  head: string[],
+  body: GridRow[],
+  fontSize: number,
+  rowH: number,
+): number {
+  const width = columns.reduce((sum, c) => sum + c.w, 0);
+  const xs: number[] = [];
+  let cursor = x0;
+  for (const col of columns) {
+    xs.push(cursor);
+    cursor += col.w;
+  }
+  const LH = fontSize * 0.36; // mm je Textzeile
+
+  const put = (
+    text: string,
+    ci: number,
+    y: number,
+    style: "normal" | "bold",
+    color: [number, number, number],
+  ) => {
+    if (!text) return;
+    const col = columns[ci];
+    doc.setFont("helvetica", style);
+    doc.setTextColor(color[0], color[1], color[2]);
+    const tx =
+      col.align === "center"
+        ? xs[ci] + col.w / 2
+        : col.align === "right"
+          ? xs[ci] + col.w - 1.5
+          : xs[ci] + 1.5;
+    doc.text(text, tx, y, { align: col.align });
+  };
+
+  doc.setFontSize(fontSize);
+  let y = y0;
+  doc.setFillColor(HEAD_FILL[0], HEAD_FILL[1], HEAD_FILL[2]);
+  doc.rect(x0, y, width, rowH, "F");
+  head.forEach((h, ci) => put(T(h), ci, y + rowH / 2 + LH * 0.35, "bold", INK));
+  y += rowH;
+
+  const tops: number[] = [];
+  for (const row of body) {
+    tops.push(y);
+    if (row.shaded) {
+      doc.setFillColor(SHADE_FILL[0], SHADE_FILL[1], SHADE_FILL[2]);
+      doc.rect(x0, y, width, rowH, "F");
+    }
+    row.cells.forEach((lines, ci) => {
+      const used = lines.filter(Boolean);
+      const offset = ((used.length - 1) * LH) / 2;
+      used.forEach((line, j) => {
+        const yy = y + rowH / 2 - offset + j * LH + LH * 0.35;
+        const first = j === 0;
+        put(T(line), ci, yy, first && (row.strong || ci === 0) ? "bold" : "normal", first ? INK : MUTED);
+      });
+    });
+    y += rowH;
+  }
+
+  doc.setDrawColor(GRID[0], GRID[1], GRID[2]);
+  doc.setLineWidth(0.2);
+  for (const hy of [y0, ...tops, y]) doc.line(x0, hy, x0 + width, hy);
+  for (const vx of [...xs, x0 + width]) doc.line(vx, y0, vx, y);
+  return y;
+}
+
+/** Eine Schicht als zwei Textzeilen: Zeitspanne und Stunden/Pause. */
+/**
+ * Zellinhalt für einen Tag. Ein Tag kann ZWEI Dienste haben (mittags und
+ * abends) – beide müssen auf den Aushang, sonst fehlt die halbe Schicht.
+ *
+ * Die Zeilenhöhe im Gitter ist fest, deshalb:
+ *  - ein Dienst  -> Uhrzeit + Stunden (zwei Zeilen),
+ *  - zwei Dienste -> beide Uhrzeiten (zwei Zeilen); die Stundenzahl kommt nur
+ *    dazu, wo das Blatt Platz für eine dritte Zeile hat (withHours).
+ */
+function shiftLines(shifts: Shift[], closed: boolean, withHours = false): string[] {
+  if (shifts.length === 0) return [closed ? "-" : "frei"];
+  const sorted = [...shifts].sort((a, b) => a.startMinutes - b.startMinutes);
+  const stunden = (minutes: number) => minutesToDecimalHours(minutes, 2).replace(",00", "");
+  if (sorted.length === 1) {
+    const shift = sorted[0];
+    return [
+      `${minutesToTime(shift.startMinutes)}-${minutesToTime(shift.endMinutes)}`,
+      `${stunden(shift.paidMinutes)}h${shift.pauseMinutes > 0 ? ` · P${shift.pauseMinutes}` : ""}`,
+    ];
+  }
+  const zeiten = sorted.map((s) => `${minutesToTime(s.startMinutes)}-${minutesToTime(s.endMinutes)}`);
+  const gesamt = sorted.reduce((sum, s) => sum + s.paidMinutes, 0);
+  return withHours ? [...zeiten, `${stunden(gesamt)}h`] : zeiten;
+}
+
+/**
+ * Dienstplan-PDF für einen Zeitraum (eine Seite). Spaltenbreite, Schriftgröße
+ * und Zeilenhöhe richten sich nach der Menge, damit alles auf das Blatt passt.
+ */
+export function buildDienstplanPdf(
+  schedule: Schedule,
+  opts: { dates: string[]; title: string; layout: SchedulePdfLayout; employeeIds?: string[] },
+): jsPDF {
+  const doc = newDienstplanDoc(opts.layout);
+  drawDienstplan(doc, schedule, opts);
+  return doc;
+}
+
+/** Eine Filiale mit dem Zeitraum, der auf ihre Dienstplan-Seite soll. */
+export type DienstplanJob = {
+  schedule: Schedule;
+  dates: string[];
+  title: string;
+  employeeIds?: string[];
+};
+
+/** Dienstplan-PDF über MEHRERE Filialen: je Filiale eine Seite, eine Datei. */
+export function buildDienstplanPdfFor(jobs: DienstplanJob[], layout: SchedulePdfLayout): jsPDF {
+  const doc = newDienstplanDoc(layout);
+  jobs.forEach((job, index) => {
+    if (index > 0) doc.addPage();
+    drawDienstplan(doc, job.schedule, { ...job, layout });
+  });
+  return doc;
+}
+
+/** Leeres Dokument im passenden Format: der Monat liegt quer, die Woche hoch. */
+function newDienstplanDoc(layout: SchedulePdfLayout): jsPDF {
+  return new jsPDF({
+    unit: "mm",
+    format: "a4",
+    orientation: layout === "byDate" ? "landscape" : "portrait",
+    compress: true,
+  });
+}
+
+/** Zeichnet EINEN Dienstplan auf die aktuelle Seite. */
+function drawDienstplan(
+  doc: jsPDF,
+  schedule: Schedule,
+  opts: { dates: string[]; title: string; layout: SchedulePdfLayout; employeeIds?: string[] },
+): void {
+  const employees =
+    opts.employeeIds && opts.employeeIds.length
+      ? schedule.employees.filter((e) => opts.employeeIds!.includes(e.id))
+      : schedule.employees;
+  // Eine LISTE je Person und Tag – an geteilten Tagen sind es zwei Dienste.
+  const byKey = new Map<string, Shift[]>();
+  for (const s of schedule.shifts) {
+    const key = `${s.employeeId}#${s.date}`;
+    byKey.set(key, [...(byKey.get(key) ?? []), s]);
+  }
+
+  const holidays = publicHolidays(schedule.year);
+  const holidayNames = publicHolidayNames(schedule.year);
+  const overrides = Object.fromEntries(schedule.dateOverrides.map((o) => [o.date, o]));
+  const closedOn = (date: string) => isDayClosed(schedule.workHours, date, holidays, overrides);
+
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const startY = drawHeader(doc, "Dienstplan", schedule, opts.title);
+  const usableW = pageW - 2 * MARGIN;
+  // Unteres Band für die Unterschriften bleibt frei.
+  const usableH = pageH - startY - 24;
+
+  if (opts.layout === "byEmployee") {
+    const nameW = 32;
+    const sumW = 16;
+    const dayW = (usableW - nameW - sumW) / Math.max(1, opts.dates.length);
+    const columns: GridColumn[] = [
+      { w: nameW, align: "left" },
+      ...opts.dates.map(() => ({ w: dayW, align: "center" as const })),
+      { w: sumW, align: "right" },
+    ];
+    const head = [
+      "Mitarbeiter",
+      ...opts.dates.map(
+        (d) => `${WEEKDAY_SHORT_DE[weekdayKeyOf(parseIsoDate(d))]} ${format(parseIsoDate(d), "dd.MM.")}`,
+      ),
+      "Summe",
+    ];
+    const body: GridRow[] = employees.map((employee) => {
+      const own = opts.dates.map((d) => byKey.get(`${employee.id}#${d}`) ?? []);
+      const total = own.reduce((sum, list) => sum + list.reduce((a, s) => a + s.paidMinutes, 0), 0);
+      return {
+        shaded: false,
+        cells: [
+          [employee.name],
+          // Hochformat: hier ist Platz für die dritte Zeile mit den Stunden.
+          ...opts.dates.map((d, i) => shiftLines(own[i], closedOn(d), true)),
+          [`${minutesToDecimalHours(total, 2).replace(",00", "")}h`],
+        ],
+      };
+    });
+    body.push({
+      shaded: true,
+      strong: true,
+      cells: [
+        ["Besetzung"],
+        ...opts.dates.map((d) => [
+          closedOn(d) ? "-" : String(employees.filter((e) => byKey.has(`${e.id}#${d}`)).length),
+        ]),
+        [""],
+      ],
+    });
+    const rowH = Math.min(9, Math.max(5, usableH / (body.length + 1)));
+    drawGrid(doc, MARGIN, startY, columns, head, body, 7, rowH);
+  } else {
+    const dateW = 20;
+    const weekdayW = 26;
+    const empW = (usableW - dateW - weekdayW) / Math.max(1, employees.length);
+    const columns: GridColumn[] = [
+      { w: dateW, align: "left" },
+      { w: weekdayW, align: "left" },
+      ...employees.map(() => ({ w: empW, align: "center" as const })),
+    ];
+    const head = ["Datum", "Wochentag", ...employees.map((e) => e.name)];
+    const body: GridRow[] = opts.dates.map((d) => {
+      const closed = closedOn(d);
+      const holiday = holidayNames.get(d);
+      return {
+        shaded: closed,
+        cells: [
+          [format(parseIsoDate(d), "dd.MM.yyyy")],
+          [WEEKDAY_LABELS_DE[weekdayKeyOf(parseIsoDate(d))] + (holiday ? ` · ${holiday}` : "")],
+          ...employees.map((e) => shiftLines(byKey.get(`${e.id}#${d}`) ?? [], closed)),
+        ],
+      };
+    });
+    const rowH = Math.min(8, Math.max(4.2, usableH / (body.length + 1)));
+    const fontSize = employees.length > 9 ? 5.5 : employees.length > 6 ? 6 : 6.5;
+    drawGrid(doc, MARGIN, startY, columns, head, body, fontSize, rowH);
+  }
+
+  drawSignatures(doc, ["Unterschrift Arbeitgeber", "Datum"], pageH - 14);
+}
+
+export type ShareResult = "shared" | "cancelled" | "unsupported" | "failed";
+
+/**
+ * Bảng Chia sẻ của hệ thống („Lưu vào Tệp", gửi qua Zalo …) cho trình duyệt nhúng.
+ * Phải gọi TRỰC TIẾP trong lúc người dùng bấm nút: tạo PDF mất vài giây, gọi
+ * share sau đó thì trình duyệt coi như không có thao tác người dùng và từ chối.
+ */
+export async function sharePdf(blob: Blob, filename: string): Promise<ShareResult> {
+  if (typeof navigator === "undefined" || typeof File === "undefined") return "unsupported";
+  const file = new File([blob], filename, { type: "application/pdf" });
+  if (!navigator.canShare?.({ files: [file] })) return "unsupported";
+  try {
+    await navigator.share({ files: [file], title: filename });
+    return "shared";
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") return "cancelled";
+    return "failed";
+  }
 }

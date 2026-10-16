@@ -9,75 +9,45 @@ import type { DateOverride, DayWindow, WorkHoursConfig } from "./lib/workHours";
 /**
  * Anstellungsart. MINIJOB ist arbeitsrechtlich eine Form der Teilzeit und wird
  * bei der Schichtplanung auch genauso behandelt – die Trennung dient der
- * Obergrenze und der Belegschaftsstruktur, nicht der Planung selbst.
+ * Belegschaftsstruktur und dem Stundenzettel, nicht der Planung selbst.
  */
-export type EmploymentType = "VOLLZEIT" | "TEILZEIT" | "MINIJOB" | "AZUBI";
+export type EmploymentType = "VOLLZEIT" | "TEILZEIT" | "MINIJOB";
 
 /**
- * Jahresurlaub in ARBEITSTAGEN, nicht in Stunden.
- *
- * So rechnet das Bundesurlaubsgesetz (§ 3 BUrlG): der Anspruch hängt daran, an
- * wie vielen Tagen die Woche jemand arbeitet, nicht wie lange. Wer nur eine
- * Stunde kommt, hat trotzdem einen ganzen Arbeitstag verbraucht. Bei fünf
- * Tagen die Woche sind es 20 Tage im Jahr, bei sechs Tagen 24.
- *
- * Kylan hat Montag zu und öffnet sechs Tage; eine Vollzeitkraft arbeitet
- * sechs Tage die Woche und hat deshalb 24 Tage. Teilzeit, Minijob und Azubi
- * arbeiten an weniger Tagen der Woche, und weil der Anspruch an den Arbeitstagen
- * je Woche hängt, ist er entsprechend kleiner: Teilzeit rechnet mit vier Tagen
- * die Woche (24 × 4/6 = 16).
- *
- * Wird das überschritten, WARNT die App – sie hindert aber niemanden: mehr
- * Urlaub als der gesetzliche Mindestanspruch ist erlaubt, er kann vertraglich
- * vereinbart oder aus dem Vorjahr übertragen sein.
+ * Gesetzlicher Mindesturlaub in ARBEITSTAGEN je Jahr (§ 3 BUrlG: 24 Werktage
+ * bei 6 Tagen die Woche). Teilzeit: vier Tage die Woche => 24 × 4/6.
  */
 export const URLAUB_DAYS_PER_YEAR: Record<EmploymentType, number> = {
   VOLLZEIT: 24,
-  // Teilzeit: vier Arbeitstage die Woche => 24 × 4/6.
   TEILZEIT: 16,
   MINIJOB: 8,
-  // Der Azubi kommt unter der Woche nur abends und sonst am Wochenende.
-  AZUBI: 8,
 };
 
-/**
- * Für Kylan gibt es BEWUSST keine Zahlengrenzen bei der Belegschaft:
- * weder eine Obergrenze für die Anzahl der Beschäftigten noch eine eigene
- * Stundendecke für Minijobs.
- *
- * Andere Filialen haben so etwas, weil der Betrieb es ausdrücklich gesagt hat
- * ("höchstens 3 Stammkräfte und 5 Minijobs"). Hier wurde nur die heutige
- * Besetzung genannt. Die vertraglichen 43 h einer Minijob-Kraft stehen ohnehin
- * als deren Monats-Soll in der Mitarbeiterliste – eine zusätzliche Prüfung
- * dagegen wäre doppelt gemoppelt und würde beim Einstellen einer weiteren
- * Kraft grundlos meckern.
- *
- * MINIJOB bleibt als Anstellungsart erhalten: sie steht auf dem Stundenzettel
- * und in der Lohnabrechnung, nur eben ohne eigene Grenze.
- */
+/** Bộ phận: Bồi (Service) oder Bếp (Küche). Nur Anzeige – der Planer nutzt es (noch) nicht. */
+export type Station = "SERVICE" | "KITCHEN";
 
 export type ShiftType = "EARLY" | "LATE" | "CUSTOM";
+
+/** „Khung giờ ưu tiên": an diesen Wochentagen möglichst in diesem Fenster arbeiten. */
+export type PreferredWindow = {
+  days: WeekdayKey[];
+  startMinutes: number;
+  endMinutes: number;
+};
 
 export type Employee = {
   id: string;
   name: string;
   employmentType: EmploymentType;
-  /**
-   * Ist diese Person der Chef?
-   *
-   * Der Chef arbeitet mit und zaehlt bei der Besetzung ganz normal mit – auch
-   * bei der Obergrenze der Stosszeit. Fuer ihn gelten aber zwei eigene Regeln:
-   * fuenf Arbeitstage je Woche, und samstags ist er nicht im Laden.
-   */
-  isOwner?: boolean;
+  /** Bồi oder Bếp. Fehlt = Bồi (ältere Daten). */
+  station?: Station;
   /**
    * Monatliches Soll in Minuten (Integer). 176 h => 10560.
    *
    * Bei Viet Cuisine wird der Vertrag in WOCHENstunden angegeben (39 h/Woche
    * = Vollzeit). Ist weeklyHours gesetzt, ist DAS die Quelle und targetMinutes
-   * wird je Monat daraus berechnet (siehe monatsSollMinuten). targetMinutes
-   * bleibt trotzdem befüllt, damit ältere Codepfade und die Anzeige einen Wert
-   * haben.
+   * wird je Monat daraus berechnet (siehe contract.ts). targetMinutes bleibt
+   * trotzdem befüllt, damit ältere gespeicherte Daten einen Wert haben.
    */
   targetMinutes: number;
   /**
@@ -94,18 +64,6 @@ export type Employee = {
    */
   fixedShift?: DayWindow;
   /**
-   * Urlaubstage als ISO-Daten "yyyy-MM-dd", über das GANZE Jahr.
-   *
-   * Bewusst das ganze Jahr und nicht nur der geplante Monat: der Anspruch ist
-   * ein Jahresanspruch, und ob jemand seine Tage überschreitet, lässt sich nur
-   * am Jahr ablesen. Der Scheduler nimmt sich daraus die Tage des Monats, den
-   * er gerade plant.
-   *
-   * Die Tage trägt IMMER der Nutzer ein. Der Automat darf keinen Urlaub
-   * verteilen – wer wann frei nimmt, ist eine Absprache im Betrieb.
-   */
-  vacationDates?: string[];
-  /**
    * Erster Arbeitstag als ISO-Datum "yyyy-MM-dd" (Eintritt/Vertragsbeginn).
    *
    * Gesetzt => Tage VOR diesem Datum sind gesperrt (kein Dienst) UND zählen
@@ -114,6 +72,19 @@ export type Employee = {
    * als „zu wenig geplant" gemeldet zu werden. Fehlt = von Monatsanfang an dabei.
    */
   startDate?: string;
+  /**
+   * Letzter Arbeitstag (Austritt), ISO "yyyy-MM-dd". Danach wird niemand mehr
+   * eingeplant, und die Tage nach dem Austritt zählen nicht ins Monats-Soll –
+   * wer am 15. aufhört, bekommt für diesen Monat nur das halbe Soll und keine
+   * Warnung „zu wenig geplant". Fehlt = arbeitet weiter (kein Austritt).
+   */
+  endDate?: string;
+  /**
+   * Urlaubstage als ISO-Daten "yyyy-MM-dd", über das GANZE Jahr (Anspruch ist
+   * ein Jahresanspruch). An diesen Tagen wird nicht geplant; das Monats-Soll
+   * bleibt. Die Tage trägt IMMER der Nutzer ein.
+   */
+  vacationDates?: string[];
   /**
    * Wochentage, an denen diese Person überhaupt eingeplant werden darf.
    * Fehlt/leer = jeder Tag ist möglich (keine Einschränkung).
@@ -124,6 +95,38 @@ export type Employee = {
    * Sechs-Tage-Regel begrenzt.
    */
   maxDaysPerWeek?: number;
+  /**
+   * Muss diese Person an FEIERTAGEN im Dienst sein?
+   *
+   * Vorgabe des Betriebs: „Những ngày lễ phải có bạn Bá Việt Nguyen trong ca".
+   * Gesetzt => der Scheduler plant sie an jedem geöffneten Feiertag ein, und
+   * die Prüfung meldet es, wenn sie doch fehlt.
+   */
+  requiredOnHolidays?: boolean;
+  /**
+   * Dieselbe PERSON in mehreren Filialen (z. B. Bá Việt Nguyễn: Vollzeit im
+   * Shin, Minijob im Nieu). Gleicher Schlüssel = gleicher Mensch; der Planer
+   * belegt dann keinen Tag doppelt, denn die Läden liegen weit auseinander.
+   */
+  personKey?: string;
+  /**
+   * „Độ dài ca" (weich, übernommen aus Thienlong): bezahlte Stunden je
+   * Arbeitstag, z. B. 3–4 h. Der Planer bleibt darin, solange das Soll der
+   * Woche so erreichbar ist; sonst gilt die Standardlänge. Fehlt = Standard.
+   */
+  shiftHours?: { min: number; max: number };
+  /**
+   * „Rải đều trong tháng" (weich): mit „Độ dài ca" lieber mehr, dafür kürzere
+   * Arbeitstage. Die Wochen sind hier ohnehin gleichmäßig verteilt (das
+   * Monats-Soll wird je Woche nach offenen Tagen aufgeteilt).
+   */
+  spreadEvenly?: boolean;
+  /**
+   * „Khung giờ ưu tiên" (weich): Wunsch-Tage und -Uhrzeiten. Ist mindestens ein
+   * Fenster gesetzt, kostet jede Arbeitsminute außerhalb einen Aufschlag – an
+   * Tagen ohne Fenster also der ganze Dienst. Besetzungsregeln gehen vor.
+   */
+  preferredWindows?: PreferredWindow[];
 };
 
 export type Shift = {
@@ -167,49 +170,28 @@ export type Schedule = {
   lockedAt?: string;
   /** Bereits gedruckte Wochen, als ISO-Datum des jeweiligen Montags. */
   printedWeeks?: string[];
+  /** Bereits angewandte einmalige Datenänderungen (siehe lib/migrations.ts). */
+  migrations?: string[];
+  /**
+   * Der Betrieb hat die Warnungen „chưa đủ giờ định mức" für DIESEN Plan
+   * bewusst hingenommen (Popup nach „Tạo lịch"). Ein neuer Plan setzt es zurück.
+   */
+  underQuotaAccepted?: boolean;
+  /**
+   * Gespeicherte Pläne ANDERER Monate, Schlüssel "yyyy-MM" (lib/monthArchive.ts).
+   * Beim Monatswechsel wird der aktuelle Plan hier abgelegt und der des
+   * Zielmonats (falls vorhanden) wieder geladen – kein Monat geht verloren.
+   */
+  archive?: Record<string, MonthArchive>;
 };
 
-/** Ein einzelnes zu verplanendes Schicht-Token (Ergebnis von splitTargetHours). */
-export type ShiftToken = {
-  employeeId: string;
-  paidMinutes: number;
+/** Ein gespeicherter Monatsplan (mit Sperre und „Bỏ qua cảnh báo" dieses Monats). */
+export type MonthArchive = {
+  shifts: Shift[];
+  originalShifts: Shift[];
+  /** Zeitpunkt des Ablegens (ISO). */
+  savedAt: string;
+  lockedAt?: string;
+  printedWeeks?: string[];
+  underQuotaAccepted?: boolean;
 };
-
-/**
- * Auszubildende: höchstens 43 Stunden im Monat. Wird das überschritten, warnt
- * die App – gesperrt wird nichts, denn ob mehr erlaubt ist, steht im
- * Ausbildungsvertrag und nicht in diesem Programm.
- */
-export const AZUBI_MAX_MONTHLY_HOURS = 43;
-
-/**
- * Zeitfenster, in dem ein Azubi an einem WOCHENTAG arbeiten darf: 18–22 Uhr.
- *
- * Vorgabe des Betriebs: der Azubi kommt unter der Woche nur abends, dazu am
- * Wochenende. Am Samstag und Sonntag gilt die Einschränkung NICHT – dort darf
- * er über den ganzen Tag eingeteilt werden.
- */
-export const AZUBI_EVENING_START = 18 * 60;
-export const AZUBI_EVENING_END = 22 * 60;
-
-/** So viele Tage je Woche arbeitet der Chef. */
-export const OWNER_DAYS_PER_WEEK = 5;
-
-/**
- * Obergrenze für die Schichtlänge des Chefs.
- *
- * Er ist der Einzige, dessen Dienst über die MITTAGSSCHLIESSUNG hinweg läuft:
- * Di–Fr ist von 15:00 bis 17:00 zu, für ihn zählt trotzdem der ganze Rahmen
- * 11:30–22:00 als ein Stück.
- *
- * Der Wert steht auf 10, praktisch erreicht er das aber nicht mehr: seit die
- * gesetzliche Pause gilt, braucht eine 10-Stunden-Schicht 45 Minuten Pause und
- * damit 10,75 h Anwesenheit – der Rahmen bietet nur 10,5 h. Übrig bleiben
- * 9 h + 30 min = 9,5 h. Die 10 bleibt hier stehen, damit die Grenze nicht
- * doppelt gepflegt werden muss; wer das Fenster später verlängert, bekommt die
- * zehnte Stunde automatisch zurück.
- */
-export const OWNER_MAX_SHIFT_HOURS = 10;
-
-/** An diesem Wochentag ist der Chef nicht im Laden. */
-export const OWNER_FREE_WEEKDAY = "saturday" as const;

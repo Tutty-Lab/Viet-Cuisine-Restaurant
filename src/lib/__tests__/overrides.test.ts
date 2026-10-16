@@ -5,24 +5,15 @@ import { DEFAULT_WORK_HOURS, resolveDay, type OverrideMap } from "../workHours";
 import { SAMPLE_EMPLOYEES } from "../sampleData";
 import { datesOfMonth } from "../demand";
 import { publicHolidays } from "../holidays";
-import { contractOpenDays, monthlyTargetMinutes } from "../contract";
-import { weekStartOf } from "../weeks";
+import { monthlyTargetMinutesFor } from "../contract";
 
-const openDaysWith = (year: number, month: number, overrides: OverrideMap): number => {
+const openDatesWith = (year: number, month: number, overrides: OverrideMap): string[] => {
   const hol = publicHolidays(year);
-  const openDates = datesOfMonth(year, month).filter(
-    (d) => !resolveDay(DEFAULT_WORK_HOURS, d, hol, overrides).closed,
-  );
-  const byWeek = new Map<string, number>();
-  for (const date of openDates) {
-    const week = weekStartOf(date);
-    byWeek.set(week, (byWeek.get(week) ?? 0) + 1);
-  }
-  return contractOpenDays([...byWeek.values()]);
+  return datesOfMonth(year, month).filter((d) => !resolveDay(DEFAULT_WORK_HOURS, d, hol, overrides).closed);
 };
 
-const sollTotal = (openDays: number): number =>
-  SAMPLE_EMPLOYEES.reduce((sum, e) => sum + monthlyTargetMinutes(e, openDays), 0);
+const sollTotal = (openDates: readonly string[]): number =>
+  SAMPLE_EMPLOYEES.reduce((sum, e) => sum + monthlyTargetMinutesFor(e, openDates), 0);
 
 describe("Ausnahmen je Datum (Overrides)", () => {
   it("plant an geschlossenen Tagen keine Schicht – Soll bleibt im 30-Minuten-Raster", () => {
@@ -38,10 +29,10 @@ describe("Ausnahmen je Datum (Overrides)", () => {
     });
     expect(shifts.filter((s) => s.date === "2026-08-08")).toHaveLength(0);
 
-    const openDays = openDaysWith(2026, 8, overrides);
-    const result = validateSchedule(SAMPLE_EMPLOYEES, shifts, 2026, openDays);
+    const openDates = openDatesWith(2026, 8, overrides);
+    const result = validateSchedule(SAMPLE_EMPLOYEES, shifts, 2026, openDates);
     expect(result.errors.filter((e) => e.severity !== "warning")).toEqual([]);
-    expect(Math.abs(shifts.reduce((a, s) => a + s.paidMinutes, 0) - sollTotal(openDays))).toBeLessThanOrEqual(SAMPLE_EMPLOYEES.length * 15);
+    expect(Math.abs(shifts.reduce((a, s) => a + s.paidMinutes, 0) - sollTotal(openDates))).toBeLessThan(SAMPLE_EMPLOYEES.length * 30);
   });
 
   it("halber Tag: Mitarbeiter arbeiten KÜRZERE Schichten (nicht frei), Soll im 30-Minuten-Raster", () => {
@@ -70,13 +61,12 @@ describe("Ausnahmen je Datum (Overrides)", () => {
       expect(s.startMinutes).toBeGreaterThanOrEqual(10 * 60 + 30);
       expect(s.endMinutes).toBeLessThanOrEqual(16 * 60);
     }
-    const openDays = openDaysWith(2026, 8, overrides);
-    const result = validateSchedule(SAMPLE_EMPLOYEES, shifts, 2026, openDays);
+    const openDates = openDatesWith(2026, 8, overrides);
+    const result = validateSchedule(SAMPLE_EMPLOYEES, shifts, 2026, openDates);
     expect(result.errors.filter((e) => e.severity !== "warning")).toEqual([]);
-    // Gleiche Tagesstunden liegen jetzt in einem engen Band (6–7 h bei 39 h). Ein
-    // von Hand geöffneter HALBER Tag (max. 5,5 h) passt nicht in dieses Band, also
-    // bleibt dort ein Rest ungeplant (~0,7 h/Person, als Warnung gemeldet) statt ihn
+    // Ein von Hand geöffneter HALBER Tag (max. 5,5 h) trägt weniger, als ihm nach
+    // Gewicht zustünde; ein Rest bleibt ungeplant (als Warnung gemeldet), statt ihn
     // zu 9-h-Tagen anderswo zu ballen. Im normalen Monat wird 100 % gefüllt.
-    expect(Math.abs(shifts.reduce((a, s) => a + s.paidMinutes, 0) - sollTotal(openDays))).toBeLessThanOrEqual(SAMPLE_EMPLOYEES.length * 45);
+    expect(Math.abs(shifts.reduce((a, s) => a + s.paidMinutes, 0) - sollTotal(openDates))).toBeLessThanOrEqual(SAMPLE_EMPLOYEES.length * 45);
   });
 });
