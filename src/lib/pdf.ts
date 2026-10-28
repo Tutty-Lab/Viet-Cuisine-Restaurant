@@ -287,6 +287,8 @@ function drawStundenzettelTable(
   rows: DayRow[],
   totalMinutes: number,
   maxBottom: number,
+  /** false = Summenzelle bleibt leer (der Betrieb trägt von Hand ein). */
+  showTotal = true,
 ): void {
   const BASE_FS = 6.5; // Schriftgröße (pt)
   const BASE_LH = 2.5; // Höhe je Textzeile (mm)
@@ -417,7 +419,7 @@ function drawStundenzettelTable(
   doc.setFillColor(...HEAD_FILL);
   doc.rect(SZ_LEFT, y, SZ_RIGHT - SZ_LEFT, footH, "F");
   drawCellText("Gesamtstunden", 0, grundlinie(y + footH / 2), "bold", INK);
-  drawCellText(minutesToDecimalHours(totalMinutes), 4, grundlinie(y + footH / 2), "bold", INK);
+  if (showTotal) drawCellText(minutesToDecimalHours(totalMinutes), 4, grundlinie(y + footH / 2), "bold", INK);
   y += footH;
   const tableBottom = y;
 
@@ -446,7 +448,6 @@ function drawStundenzettel(
       ["Beschäftigungsart", employmentLabelDe(employee.employmentType)],
       ["Mitarbeiter", employee.name],
       ["Monat", MONTH_NAMES_DE[schedule.month - 1]],
-      ["Sollstunden", null], // von Hand einzutragen
       ["Jahr", String(schedule.year)],
     ],
     startY,
@@ -455,44 +456,113 @@ function drawStundenzettel(
   const { rows, totalMinutes } = stundenzettelRowsFor(schedule, employee, dates);
 
   // Unter der Tabelle liegen Summe (ab pageH − 30) und Unterschriften – die
-  // Tabelle hört spätestens 5 mm darüber auf.
-  drawStundenzettelTable(doc, infoY, rows, totalMinutes, doc.internal.pageSize.getHeight() - 35);
+  // Tabelle hört spätestens 5 mm darüber auf. Die Summe bleibt leer: der
+  // Betrieb addiert selbst und gleicht mit dem Übersichtsblatt ab.
+  drawStundenzettelTable(doc, infoY, rows, totalMinutes, doc.internal.pageSize.getHeight() - 35, false);
 
   // Zusammenfassung + Unterschriften: FESTE Positionen im reservierten Band am
   // Seitenende – unabhängig davon, wo die Tabelle endet (keine Kollision mehr).
   const pageH = doc.internal.pageSize.getHeight();
-  const pageW = doc.internal.pageSize.getWidth();
   const summaryY = pageH - 30;
-  const col3 = (pageW - 2 * MARGIN) / 3;
 
-  const summary: Array<[string, string | null]> = [
-    ["Gesamtstunden", `${minutesToDecimalHours(totalMinutes)} h`],
-    ["Sollstunden", null],
-    ["Differenz", null],
-  ];
-  summary.forEach(([label, value], i) => {
-    const x = MARGIN + i * col3;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.setTextColor(...MUTED);
-    doc.text(T(label), x, summaryY);
-    if (value === null) {
-      doc.setDrawColor(...GRID);
-      doc.setLineWidth(0.2);
-      doc.line(x, summaryY + 5, x + 26, summaryY + 5);
-    } else {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(...INK);
-      doc.text(T(value), x, summaryY + 5);
-    }
-  });
+  // Nur noch „Gesamtstunden" – als leere Schreiblinie. Sollstunden und Differenz
+  // sind bewusst entfernt; der Betrieb addiert die Tage selbst und gleicht die
+  // Summe mit dem Übersichtsblatt am Anfang ab.
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...MUTED);
+  doc.text(T("Gesamtstunden"), MARGIN, summaryY);
+  doc.setDrawColor(...GRID);
+  doc.setLineWidth(0.2);
+  doc.line(MARGIN, summaryY + 5, MARGIN + 40, summaryY + 5);
 
   drawSignatures(
     doc,
     ["Unterschrift Mitarbeiter", "Unterschrift Arbeitgeber", "Datum"],
     pageH - 14,
   );
+}
+
+/**
+ * Übersichtsblatt am Anfang: je Person die errechnete Gesamtstundenzahl für den
+ * Zeitraum. Auf den Einzelblättern bleibt die Summe leer – der Betrieb addiert
+ * die Tage von Hand und gleicht hier ab. Deshalb trägt NUR dieses Blatt Zahlen.
+ */
+function drawStundenzettelSummary(
+  doc: jsPDF,
+  schedule: Schedule,
+  employees: Employee[],
+  dates: string[],
+  periodLabel: string,
+): void {
+  const startY = drawHeader(doc, "Übersicht Gesamtstunden", schedule, periodLabel);
+  const infoY = drawInfoBlock(
+    doc,
+    [
+      ["Firmenname", schedule.companyName || "—"],
+      ["Monat", MONTH_NAMES_DE[schedule.month - 1]],
+      ["Mitarbeiter", String(employees.length)],
+      ["Jahr", String(schedule.year)],
+    ],
+    startY,
+  );
+
+  const pageW = doc.internal.pageSize.getWidth();
+  const left = MARGIN;
+  const right = pageW - MARGIN;
+  const colType = 120; // Beschäftigungsart links ab hier
+  const headH = 7;
+  const rowH = 7;
+
+  // Kopfzeile.
+  let y = infoY + 2;
+  const headTop = y;
+  doc.setFillColor(...HEAD_FILL);
+  doc.rect(left, y, right - left, headH, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...INK);
+  doc.text(T("Mitarbeiter"), left + 2, y + headH / 2 + 1.5);
+  doc.text(T("Beschäftigungsart"), colType, y + headH / 2 + 1.5);
+  doc.text(T("Gesamtstunden"), right - 2, y + headH / 2 + 1.5, { align: "right" });
+  y += headH;
+
+  // Eine Zeile je Person mit der errechneten Summe.
+  const rowTops: number[] = [];
+  let totalMinutes = 0;
+  for (const employee of employees) {
+    const { totalMinutes: mins } = stundenzettelRowsFor(schedule, employee, dates);
+    totalMinutes += mins;
+    rowTops.push(y);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(...INK);
+    doc.text(T(employee.name), left + 2, y + rowH / 2 + 1.5);
+    doc.setTextColor(...MUTED);
+    doc.text(T(employmentLabelDe(employee.employmentType)), colType, y + rowH / 2 + 1.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...INK);
+    doc.text(`${minutesToDecimalHours(mins)} h`, right - 2, y + rowH / 2 + 1.5, { align: "right" });
+    y += rowH;
+  }
+
+  // Summenzeile (Gesamt über alle Personen).
+  const sumTop = y;
+  doc.setFillColor(...HEAD_FILL);
+  doc.rect(left, y, right - left, rowH, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...INK);
+  doc.text(T("Gesamt"), left + 2, y + rowH / 2 + 1.5);
+  doc.text(`${minutesToDecimalHours(totalMinutes)} h`, right - 2, y + rowH / 2 + 1.5, { align: "right" });
+  y += rowH;
+  const tableBottom = y;
+
+  // Gitter.
+  doc.setDrawColor(...GRID);
+  doc.setLineWidth(0.2);
+  for (const hy of [headTop, ...rowTops, sumTop, tableBottom]) doc.line(left, hy, right, hy);
+  for (const vx of [left, colType - 2, right]) doc.line(vx, headTop, vx, tableBottom);
 }
 
 /**
@@ -528,12 +598,20 @@ export async function buildStundenzettelPdfFor(
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
   const total = jobs.reduce((sum, job) => sum + job.employees.length, 0);
   let done = 0;
+  let pageUsed = false; // erste Seite ist schon da – ab der zweiten addPage()
 
   for (const job of jobs) {
     const dates = opts.dates ?? datesOfMonth(job.schedule.year, job.schedule.month);
     const periodLabel = opts.periodLabel ?? monthLabelDe(job.schedule.year, job.schedule.month);
+    // Übersichtsblatt zuerst (trägt als einziges die errechneten Summen).
+    if (job.employees.length > 0) {
+      if (pageUsed) doc.addPage();
+      drawStundenzettelSummary(doc, job.schedule, job.employees, dates, periodLabel);
+      pageUsed = true;
+    }
     for (const employee of job.employees) {
-      if (done > 0) doc.addPage();
+      if (pageUsed) doc.addPage();
+      pageUsed = true;
       drawStundenzettel(doc, job.schedule, employee, dates, periodLabel);
       // Zähler NICHT im optionalen Aufruf hochzählen: ohne onProgress würde
       // onProgress?.(++done) gar nicht ausgewertet – dann lägen alle Seiten

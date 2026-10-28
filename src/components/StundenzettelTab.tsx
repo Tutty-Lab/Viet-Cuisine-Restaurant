@@ -16,6 +16,8 @@ import { isScheduleYearAllowed, SCHEDULE_YEAR_RANGE_LABEL } from "../lib/years";
 import { weeksOfMonth } from "../lib/weeks";
 import { datesOfMonth } from "../lib/demand";
 import { monthLabel } from "../lib/shiftOps";
+import { minutesToDecimalHours } from "../lib/time";
+import { employmentLabelDe } from "../lib/employment";
 
 /** Dienstplan-Ausdruck (Monat oder eine Woche), evtl. auf eine Person gefiltert. */
 type ScheduleRange = {
@@ -78,6 +80,13 @@ export function StundenzettelTab({
     () => weeksOfMonth(schedule.year, schedule.month),
     [schedule.year, schedule.month],
   );
+
+  // Kỳ xuất chấm công: "month" = cả tháng, hoặc weekStart của một tuần.
+  // Chỉ áp cho Stundenzettel (Chấm công); Lịch làm việc có bộ chọn riêng.
+  const [periodKey, setPeriodKey] = useState<string>("month");
+  const selectedWeek = weeks.find((w) => w.weekStart === periodKey);
+  // weekStart cũ không còn trong tháng mới => coi như cả tháng.
+  const periodDates = periodKey === "month" ? undefined : selectedWeek?.dates;
 
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfProgress, setPdfProgress] = useState<string>("");
@@ -304,7 +313,16 @@ export function StundenzettelTab({
     };
   }
 
-  const onPdfStundenzettel = () => void doPdf(`Stundenzettel_${whoTag}_${monthTag}.pdf`);
+  const onPdfStundenzettel = () => {
+    if (!periodDates || !selectedWeek) {
+      void doPdf(`Stundenzettel_${whoTag}_${monthTag}.pdf`);
+      return;
+    }
+    void doPdf(`Stundenzettel_${whoTag}_${monthTag}_tuan_${selectedWeek.weekStart}.pdf`, {
+      dates: periodDates,
+      label: `Woche ${selectedWeek.label}`,
+    });
+  };
   const onPdfSchedule = () => {
     const range = scheduleRangeFor("month");
     if (range) void doPdfSchedule(range, `Dienstplan_${whoTag}_thang_${monthTag}.pdf`);
@@ -334,19 +352,34 @@ export function StundenzettelTab({
         {/* Mobile: eigene volle Zeile, Auswahl dehnt sich; ab sm rechts neben dem Umschalter. */}
         <div className="flex w-full min-w-0 items-center gap-2 sm:ml-auto sm:w-auto">
           {mode === "timesheet" ? (
-            <select
-              aria-label="Xem trước"
-              value={previewEmployee?.id ?? ""}
-              onChange={(e) => setPreviewId(e.target.value)}
-              className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 sm:flex-none"
-            >
-              <option value="">Cả quán ({previewStore.activeEmployees.length} người)</option>
-              {previewStore.activeEmployees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-            </select>
+            <>
+              <select
+                aria-label="Xem trước"
+                value={previewEmployee?.id ?? ""}
+                onChange={(e) => setPreviewId(e.target.value)}
+                className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 sm:flex-none"
+              >
+                <option value="">Cả quán ({previewStore.activeEmployees.length} người)</option>
+                {previewStore.activeEmployees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Kỳ xuất PDF"
+                value={periodDates ? periodKey : "month"}
+                onChange={(e) => setPeriodKey(e.target.value)}
+                className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 sm:flex-none"
+              >
+                <option value="month">Cả tháng</option>
+                {weeks.map((w) => (
+                  <option key={w.weekStart} value={w.weekStart}>
+                    Tuần {w.label}
+                  </option>
+                ))}
+              </select>
+            </>
           ) : (
             toolbarRight
           )}
@@ -356,7 +389,7 @@ export function StundenzettelTab({
             onClick={mode === "timesheet" ? onPdfStundenzettel : onPdfSchedule}
             title={
               mode === "timesheet"
-                ? "Bảng chấm công của cả quán, cả tháng"
+                ? `Bảng chấm công của cả quán · ${periodDates && selectedWeek ? `tuần ${selectedWeek.label}` : "cả tháng"}`
                 : "Lịch làm việc của cả quán, cả tháng"
             }
             className="ml-auto shrink-0 rounded-lg bg-slate-900 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
@@ -489,18 +522,86 @@ export function StundenzettelTab({
         </div>
       )}
 
+      {/* „Tờ thông số": Übersicht Gesamtstunden am Anfang – die einzige Stelle mit
+          errechneten Summen. Der Betrieb addiert jeden Einzelzettel von Hand und
+          gleicht hier ab. */}
+      {mode === "timesheet" && hasSchedule && (
+        <StundenzettelOverview
+          store={previewStore}
+          dates={periodDates ?? datesOfMonth(schedule.year, schedule.month)}
+          periodLabel={periodDates && selectedWeek ? `Tuần ${selectedWeek.label}` : monthLabel(schedule.year, schedule.month)}
+        />
+      )}
+
       {/* Ganze A4-Seite sichtbar: auf die Breite verkleinert statt seitlich scrollen. */}
       {mode === "timesheet" && (
         <div className="space-y-4">
           {previewEmployees.map((employee) => (
             <div key={employee.id} className="rounded-lg border border-slate-300 shadow-sm bg-white">
               <FitToWidth>
-                <StundenzettelPage schedule={previewStore.schedule} employee={employee} />
+                <StundenzettelPage schedule={previewStore.schedule} employee={employee} dates={periodDates} />
               </FitToWidth>
             </div>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Tờ tổng hợp Gesamtstunden (trang đầu bản in): mỗi người tổng giờ đã xếp trong
+ * kỳ. Đây là nơi DUY NHẤT có sẵn số tổng; trên từng tờ chấm công ô Gesamtstunden
+ * để trống để chủ quán tự cộng rồi đối chiếu ở đây.
+ */
+function StundenzettelOverview({
+  store,
+  dates,
+  periodLabel,
+}: {
+  store: UseScheduleReturn;
+  dates: string[];
+  periodLabel: string;
+}) {
+  const dateSet = new Set(dates);
+  const minutesByEmp = new Map<string, number>();
+  for (const s of store.schedule.shifts) {
+    if (!dateSet.has(s.date)) continue;
+    minutesByEmp.set(s.employeeId, (minutesByEmp.get(s.employeeId) ?? 0) + s.paidMinutes);
+  }
+  const rows = store.activeEmployees.map((e) => ({ e, mins: minutesByEmp.get(e.id) ?? 0 }));
+  const total = rows.reduce((sum, r) => sum + r.mins, 0);
+
+  return (
+    <div className="mb-4 rounded-lg border border-slate-300 bg-white shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
+        <div className="font-semibold text-slate-800">Übersicht Gesamtstunden</div>
+        <div className="text-sm text-slate-500">{periodLabel}</div>
+      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-slate-100 text-slate-600">
+            <th className="px-3 py-1.5 text-left font-semibold">Mitarbeiter</th>
+            <th className="px-3 py-1.5 text-left font-semibold">Beschäftigungsart</th>
+            <th className="px-3 py-1.5 text-right font-semibold">Gesamtstunden</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ e, mins }) => (
+            <tr key={e.id} className="border-t border-slate-100">
+              <td className="px-3 py-1.5 text-slate-800">{e.name}</td>
+              <td className="px-3 py-1.5 text-slate-500">{employmentLabelDe(e.employmentType)}</td>
+              <td className="px-3 py-1.5 text-right font-semibold text-slate-900">{minutesToDecimalHours(mins)} h</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-slate-300 bg-slate-100 font-semibold">
+            <td className="px-3 py-1.5 text-slate-800" colSpan={2}>Gesamt</td>
+            <td className="px-3 py-1.5 text-right text-slate-900">{minutesToDecimalHours(total)} h</td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
   );
 }

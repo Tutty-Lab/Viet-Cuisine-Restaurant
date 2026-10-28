@@ -371,7 +371,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
               <div
                 key={s.storeId}
                 role="alert"
-                className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-900"
+                className="whitespace-pre-line rounded border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-900"
               >
                 {s.storeConfig.shortName}: {s.genError}
               </div>

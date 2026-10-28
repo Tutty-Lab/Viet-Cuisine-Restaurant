@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { VacationPicker } from "./VacationPicker";
 import { vacationDatesInMonth, vacationDaysInYear, vacationEntitlement } from "../lib/availability";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
-import type { Employee, EmploymentType, Station } from "../types";
+import type { Employee, EmploymentType } from "../types";
 import { splitTargetHours } from "../lib/splitTargetHours";
 import { WEEKDAY_SHORT_VI, type WeekdayKey } from "../lib/demand";
 import { monthlyTargetMinutesFor } from "../lib/contract";
@@ -23,7 +23,6 @@ const inputClass =
  * Später einfach auf true setzen.
  */
 const ADVANCED_EDITABLE = true;
-const STATION_VI: Record<Station, string> = { SERVICE: "Bồi", KITCHEN: "Bếp" };
 
 const FIXED_START_DEFAULT = "06:30";
 const FIXED_END_DEFAULT = "14:30";
@@ -59,7 +58,6 @@ type Draft = {
   vacationDates: string[];
   name: string;
   employmentType: EmploymentType;
-  station: Station;
   /** Wird der Vertrag je Woche oder je Monat geführt? */
   unit: "week" | "month";
   /** Stunden zur gewählten Einheit, als Text – „40,2" mit Komma ist erlaubt. */
@@ -95,7 +93,6 @@ function draftFrom(emp?: Employee, partners: PartnerChoice = {}): Draft {
     vacationDates: [...(emp?.vacationDates ?? [])],
     name: emp?.name ?? "",
     employmentType: emp?.employmentType ?? "VOLLZEIT",
-    station: emp?.station ?? "SERVICE",
     unit: emp?.weeklyHours != null ? "week" : "month",
     hours: emp ? hoursText(emp.weeklyHours ?? Math.round((emp.targetMinutes / 60) * 100) / 100) : "169",
     maxDays: emp?.maxDaysPerWeek ? String(Math.min(6, emp.maxDaysPerWeek)) : "",
@@ -162,7 +159,6 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
     vacationDates: d.vacationDates.length > 0 ? [...d.vacationDates].sort() : undefined,
     name: d.name.trim() || "Nhân viên mới",
     employmentType: d.employmentType,
-    station: d.station,
     // Monatsvertrag: die Stunden stehen direkt im Soll. Wochenvertrag: das
     // Monats-Soll wird je Monat daraus abgeleitet (contract.ts).
     targetMinutes: d.unit === "month" ? Math.round(hours * 60) : 0,
@@ -344,13 +340,6 @@ function EmployeeSummaryRow({
         <span className="font-medium text-slate-900 truncate">{emp.name}</span>
         <span className="shrink-0 rounded bg-slate-100 text-slate-600 text-[11px] px-1.5 py-0.5">
           {employmentShortVi(emp.employmentType)}
-        </span>
-        <span
-          className={`shrink-0 rounded text-[11px] px-1.5 py-0.5 ${
-            emp.station === "KITCHEN" ? "bg-orange-50 text-orange-800" : "bg-sky-50 text-sky-800"
-          }`}
-        >
-          {STATION_VI[emp.station ?? "SERVICE"]}
         </span>
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500">
@@ -628,17 +617,6 @@ function EmployeeSheet({
               />
             </div>
             <div>
-              <FieldLabel>Bộ phận</FieldLabel>
-              <Segmented<Station>
-                value={d.station}
-                onChange={(v) => set("station", v)}
-                options={[
-                  { value: "SERVICE", label: "Bồi" },
-                  { value: "KITCHEN", label: "Bếp" },
-                ]}
-              />
-            </div>
-            <div>
               <FieldLabel hint={`tháng này ≈ ${minutesToShortHours(monatMin)} · ${info.text}`}>
                 {d.unit === "week" ? "Giờ / tuần" : "Giờ / tháng"}
               </FieldLabel>
@@ -697,7 +675,7 @@ function EmployeeSheet({
             );
           })()}
 
-          {/* Nâng cao: alles außer Tên, Hình thức, Bộ phận, Giờ. In der Demo gesperrt. */}
+          {/* Nâng cao: alles außer Tên, Hình thức, Giờ. In der Demo gesperrt. */}
           <section className="rounded-lg border border-slate-200">
             <button
               type="button"

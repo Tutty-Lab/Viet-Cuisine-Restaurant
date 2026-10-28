@@ -46,10 +46,6 @@ export function StundenzettelPage({
   }
   for (const liste of byDate.values()) liste.sort((a, b) => a.startMinutes - b.startMinutes);
 
-  // Summe nur über die gezeigten Tage – beim Wochen-Zettel zählt nur die Woche.
-  const totalMinutes = rows
-    .flatMap((d) => byDate.get(d) ?? [])
-    .reduce((a, s) => a + s.paidMinutes, 0);
   const holidayNames = publicHolidayNames(schedule.year);
   const closedByDate = new Map(
     schedule.dateOverrides.filter((o) => o.closed).map((o) => [o.date, o] as const),
@@ -73,12 +69,6 @@ export function StundenzettelPage({
         <Info label="Beschäftigungsart" value={employmentLabelDe(employee.employmentType)} />
         <Info label="Mitarbeiter" value={employee.name} />
         <Info label="Monat" value={MONTH_NAMES_DE[schedule.month - 1]} />
-        {/*
-          Sollstunden bleibt auf dem Zettel bewusst LEER: der Betrieb trägt den
-          Wert von Hand ein (Ausdruck wie PDF). Die geplante Zahl steht in der
-          App (Tab Nhân viên) und gehört nicht auf das Dokument.
-        */}
-        <Info label="Sollstunden" blank />
         <Info label="Jahr" value={String(schedule.year)} />
       </div>
 
@@ -208,33 +198,27 @@ export function StundenzettelPage({
           })}
         </tbody>
         <tfoot>
+          {/*
+            Gesamtstunden-Zelle bleibt LEER: der Betrieb addiert die Tage selbst
+            und gleicht mit dem Übersichtsblatt am Anfang ab (wie im PDF).
+          */}
           <tr className="font-semibold bg-slate-100">
             <Td className="text-left" colSpan={4}>
               Gesamtstunden
             </Td>
-            <Td className="text-center">{minutesToDecimalHours(totalMinutes)}</Td>
+            <Td className="text-center" />
             <Td />
           </tr>
         </tfoot>
       </table>
 
       {/*
-        Nur die tatsächlich geleisteten Stunden werden gedruckt. Sollstunden und
-        Differenz bleiben leer – sie werden auf dem Papier von Hand ergänzt.
+        Nur noch Gesamtstunden als leere Schreiblinie. Sollstunden und Differenz
+        sind bewusst entfernt – die errechnete Summe steht nur im Übersichtsblatt.
       */}
-      <div className="mt-3 grid grid-cols-3 gap-4 text-[12px]">
-        <div>
-          <div className="text-slate-500">Gesamtstunden</div>
-          <div className="font-semibold">{minutesToDecimalHours(totalMinutes)} h</div>
-        </div>
-        <div>
-          <div className="text-slate-500">Sollstunden</div>
-          <BlankLine />
-        </div>
-        <div>
-          <div className="text-slate-500">Differenz</div>
-          <BlankLine />
-        </div>
+      <div className="mt-3 text-[12px]">
+        <div className="text-slate-500">Gesamtstunden</div>
+        <BlankLine />
       </div>
 
       <div className="mt-10 grid grid-cols-3 gap-8 text-[11px]">
