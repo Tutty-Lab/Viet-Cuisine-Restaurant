@@ -133,5 +133,5 @@ export function coverageBlockReason(
     );
   }
 
-  return `Chưa tạo được lịch — có khung giờ mở cửa không đủ 2 người:\n${lines.join("\n")}`;
+  return `Có khung giờ mở cửa chưa đủ người:\n${lines.join("\n")}`;
 }

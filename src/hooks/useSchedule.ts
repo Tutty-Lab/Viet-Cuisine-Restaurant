@@ -415,10 +415,7 @@ export function useSchedule(storeId: string) {
         storeTag: storeConfig.id,
         seed: `${year}-${month}-${Date.now()}-${genNonce.current++}`,
       });
-      // HARTE Regel „Trong giờ mở cửa": zu jeder offenen Minute ≥ 2 Personen.
-      // Lässt der Personalstand das nicht zu (z. B. zu viele am selben Wochentag
-      // fest frei), wird KEIN Plan gespeichert – stattdessen ein klarer Grund,
-      // damit der Betrieb den Dienstplan nicht unterbesetzt ausdruckt.
+      // Report understaffing without blocking schedule creation.
       const gaps = coverageGaps(
         schedule.employees,
         shifts,
