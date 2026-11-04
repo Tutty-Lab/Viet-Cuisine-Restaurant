@@ -25,10 +25,13 @@ describe("Viet Cuisine", () => {
     expect(employees.every((e) => e.weeklyHours != null)).toBe(true);
   });
 
-  it("plant montags nie, und jeder Dienst liegt in einem Öffnungsblock", () => {
+  it("opens Monday with the requested hours", () => {
     for (const s of shifts) {
       const day = weekdayKeyOf(parseIsoDate(s.date));
-      expect(day).not.toBe("monday");
+      if (day === "monday") {
+        expect(s.startMinutes).toBeGreaterThanOrEqual(720);
+        expect(s.endMinutes).toBeLessThanOrEqual(1290);
+      }
       expect(s.startMinutes).toBeGreaterThanOrEqual(10 * 60 + 30);
       expect(s.endMinutes).toBeLessThanOrEqual(day === "sunday" ? 22 * 60 : 22 * 60 + 30);
     }

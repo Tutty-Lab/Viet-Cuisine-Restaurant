@@ -73,7 +73,7 @@ export const STAFFING_RULES: readonly StaffingRule[] = [
 export function ruleRange(rule: StaffingRule, weekday: WeekdayKey): { minStaff: number; maxStaff: number } {
   const weight = rule.scaled ? DAY_WEIGHTS[weekday] : 1;
   return {
-    minStaff: Math.ceil(rule.minStaff * weight),
+    minStaff: weekday === "monday" ? (rule.label === "Tối" ? 3 : rule.label === "Đóng cửa" ? 3 : 2) : Math.ceil(rule.minStaff * weight),
     maxStaff: Number.isFinite(rule.maxStaff) ? Math.ceil(rule.maxStaff * weight) : Infinity,
   };
 }
@@ -89,7 +89,7 @@ export function staffingWindows(
 ): StaffingWindow[] {
   return rules.filter((rule) => ruleAppliesOn(rule, weekday)).flatMap((rule) => {
     const range = ruleRange(rule, weekday);
-    return rule.windows(blocks).map((window) => ({ label: rule.label, ...window, ...range }));
+    return (weekday === "monday" && rule.label === "Tối" ? clip(1050, 1290)(blocks) : rule.windows(blocks)).map((window) => ({ label: rule.label, ...window, ...range }));
   });
 }
 

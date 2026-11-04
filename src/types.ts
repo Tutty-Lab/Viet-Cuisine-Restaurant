@@ -58,6 +58,9 @@ export type Employee = {
    * diesem Fenster an, unabhängig von den Öffnungsblöcken.
    */
   fixedShift?: DayWindow;
+  cleaningEnabled?: boolean;
+  /** Additional paid cleaning hours per month, outside the regular contract. */
+  cleaningHoursPerMonth?: number;
   /**
    * Erster Arbeitstag als ISO-Datum "yyyy-MM-dd" (Eintritt/Vertragsbeginn).
    *
@@ -139,6 +142,7 @@ export type Shift = {
   shiftType: ShiftType;
   /** true = automatisch generiert, false = manuell hinzugefügt/geändert. */
   generated: boolean;
+  task?: "CLEANING";
 };
 
 export type Schedule = {

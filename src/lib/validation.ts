@@ -2,6 +2,7 @@
 // Validierung des Dienstplans gegen alle geforderten Regeln.
 // ============================================================================
 
+import { cleaningTargetMinutes } from "./cleaning";
 import type { Employee, Shift } from "../types";
 import { monthlyTargetMinutes, monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES, MAX_PAID_MINUTES_PER_DAY } from "./contract";
 import { calculatePause, minutesToShortHours } from "./time";
@@ -98,6 +99,13 @@ export function validateSchedule(
     const expectedPaid = presence - shift.pauseMinutes;
     const expectedPause = calculatePause(shift.paidMinutes);
     const employee = employeeById.get(shift.employeeId);
+    if (shift.task === "CLEANING" && (!employee?.cleaningEnabled || shift.startMinutes < 420 || shift.endMinutes > 600 || shift.pauseMinutes !== 0)) {
+      errors.push({ employeeId: shift.employeeId, date: shift.date, rule: "shift-length", message: "Ca vệ sinh phải trong 07:00–10:00, dành cho nhân viên đã bật làm thêm vệ sinh." });
+    }
+    if (shift.task === "CLEANING" && shifts.some(other => other !== shift && other.task === "CLEANING" && other.date === shift.date && other.startMinutes < shift.endMinutes && shift.startMinutes < other.endMinutes)) {
+      errors.push({ employeeId: shift.employeeId, date: shift.date, rule: "shift-length", message: "Chỉ xếp một người vệ sinh cùng lúc." });
+    }
+
     if (employee && !mayWorkOn(employee, shift.date)) errors.push({ employeeId: employee.id, date: shift.date, rule: "days-off",
       message: onVacation(employee, shift.date)
         ? `${employee.name}: đã xếp vào ngày nghỉ phép ${shift.date}.`
@@ -180,14 +188,19 @@ export function validateSchedule(
       });
     }
     const maxRun = maxConsecutiveRun(new Set(empShifts.map((s) => s.date)));
-    const soll = sollOf(emp);
+    const cleaningMinutes = empShifts.filter(s => s.task === "CLEANING").reduce((sum, s) => sum + s.paidMinutes, 0);
+    const cleaningTarget = cleaningTargetMinutes(emp);
+    const soll = sollOf(emp) + cleaningTarget;
+    if (cleaningMinutes !== cleaningTarget) errors.push({ employeeId: emp.id, severity: "warning", rule: "contract-hours",
+      message: `${emp.name}: vệ sinh đã xếp ${cleaningMinutes / 60}/${cleaningTarget / 60}h tháng này; cần kiểm tra ngày còn trống và giới hạn 9h/ngày.`,
+    });
 
     if (emp.weeklyHours != null) {
       const weeks = new Map<string, { paid: number; dates: Set<string> }>();
       for (const shift of empShifts) {
         const week = weekStartOf(shift.date);
         const total = weeks.get(week) ?? { paid: 0, dates: new Set<string>() };
-        total.paid += shift.paidMinutes;
+        total.paid += shift.task === "CLEANING" ? 0 : shift.paidMinutes;
         total.dates.add(shift.date);
         weeks.set(week, total);
       }

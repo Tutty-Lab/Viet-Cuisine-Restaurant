@@ -1,3 +1,4 @@
+import { cleaningTargetMinutes } from "../lib/cleaning";
 import { useMemo, useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee } from "../types";
@@ -31,7 +32,7 @@ function storeFigures(store: UseScheduleReturn) {
   const { schedule, validation, openDates } = store;
   // Wochenverträge (weeklyHours) haben targetMinutes = 0; das Monats-Soll wird
   // erst über die offenen Tage abgeleitet (contract.ts), genau wie in der Prüfung.
-  const targetMin = schedule.employees.reduce((s, e) => s + monthlyTargetMinutesFor(e, openDates, schedule.workHours), 0);
+  const targetMin = schedule.employees.reduce((s, e) => s + monthlyTargetMinutesFor(e, openDates, schedule.workHours) + cleaningTargetMinutes(e), 0);
   const plannedMin = schedule.shifts.reduce((s, x) => s + x.paidMinutes, 0);
   // Warnungen und Fehler getrennt: ein zu hohes Monats-Soll macht den Plan nicht
   // unbrauchbar, es fehlen nur Stunden, die der Monat nicht hergibt.

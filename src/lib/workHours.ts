@@ -69,7 +69,7 @@ export function longestBlock(blocks: DayBlocks): number {
 const w = (start: number, end: number): DayWindow => ({ startMinutes: start, endMinutes: end });
 
 // Vorgabe des Betriebs (Viet Cuisine, Berg):
-//   Montag             Ruhetag
+//   Montag             12:00–14:00 UND 17:30–21:30
 //   Dienstag–Samstag   10:30–14:30 UND 16:30–22:30
 //   Sonntag, Feiertag  10:30–22:00 durchgehend
 const MITTAGS_SPLIT: DayBlocks = [w(10 * 60 + 30, 14 * 60 + 30), w(16 * 60 + 30, 22 * 60 + 30)];
@@ -77,7 +77,7 @@ const DURCHGEHEND: DayBlocks = [w(10 * 60 + 30, 22 * 60)];
 
 export const DEFAULT_WORK_HOURS: WorkHoursConfig = {
   perWeekday: {
-    monday: MITTAGS_SPLIT.map((b) => ({ ...b })), // geschlossen, nur als Rückfall
+    monday: [w(12 * 60, 14 * 60), w(17 * 60 + 30, 21 * 60 + 30)],
     tuesday: MITTAGS_SPLIT.map((b) => ({ ...b })),
     wednesday: MITTAGS_SPLIT.map((b) => ({ ...b })),
     thursday: MITTAGS_SPLIT.map((b) => ({ ...b })),
@@ -88,7 +88,7 @@ export const DEFAULT_WORK_HOURS: WorkHoursConfig = {
   // Feiertage: offen wie sonst, aber mit dem höchsten Umsatz (siehe DAY_WEIGHTS).
   holiday: DURCHGEHEND.map((b) => ({ ...b })),
   closedWeekdays: {
-    monday: true, // Viet Cuisine: montags geschlossen
+    monday: false,
     tuesday: false,
     wednesday: false,
     thursday: false,

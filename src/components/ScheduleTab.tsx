@@ -1,3 +1,4 @@
+import { cleaningTargetMinutes } from "../lib/cleaning";
 import { useMemo, useState } from "react";
 import { onVacation } from "../lib/availability";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
@@ -304,7 +305,7 @@ export function ScheduleTab({
             <tbody>
               {store.activeEmployees.map((emp) => {
                 const sum = summaryByEmp.get(emp.id);
-                const sollMin = monthlyTargetMinutesFor(emp, openDates, schedule.workHours);
+                const sollMin = monthlyTargetMinutesFor(emp, openDates, schedule.workHours) + cleaningTargetMinutes(emp);
                 const diff = sum?.diffMinutes ?? -sollMin;
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50/50">

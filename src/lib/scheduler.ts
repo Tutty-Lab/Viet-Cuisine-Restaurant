@@ -8,6 +8,7 @@ import type { Employee, Shift } from "../types";
 import type { OverrideMap, WorkHoursConfig } from "./workHours";
 import type { StaffingRule } from "./staffing";
 import type { WeekdayKey } from "./demand";
+import { addCleaningShifts } from "./cleaning";
 import { generateWeeklySchedule } from "./weeklyScheduler";
 
 export type GenerateInput = {
@@ -33,5 +34,5 @@ export type GenerateInput = {
 };
 
 export function generateSchedule(input: GenerateInput): Shift[] {
-  return generateWeeklySchedule(input);
+  return addCleaningShifts(input.employees, generateWeeklySchedule(input));
 }

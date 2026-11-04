@@ -164,7 +164,7 @@ export function DocsTab({ stores }: { stores: StoreConfig[] }) {
           ))}
         </ul>
         <p className="mt-2 text-sm text-slate-300">
-          Một quán, Thứ Hai nghỉ. Tháng/năm chọn trong popup <b>Tạo lịch</b>; tab Chấm công xuất
+          Một quán, Thứ Hai mở 12:00–14:00 và 17:30–21:30. Tháng/năm chọn trong popup <b>Tạo lịch</b>; tab Chấm công xuất
           <b> một file PDF</b> cho cả quán hoặc từng người.
         </p>
         <p className="mt-2 text-sm text-slate-300">
@@ -176,7 +176,7 @@ export function DocsTab({ stores }: { stores: StoreConfig[] }) {
 
       <Section title="1. Điều kiện bắt buộc">
         <ul className="list-disc space-y-1 pl-5">
-          <li><b>Giờ mở:</b> Thứ Hai nghỉ (trùng ngày lễ vẫn nghỉ; muốn mở thì đặt „giờ riêng" ở Cài đặt). <b>T3–T7:</b> {minutesToTime(DEFAULT_WORK_HOURS.perWeekday.tuesday[0].startMinutes)}–{minutesToTime(LUNCH_END)} và {minutesToTime(DEFAULT_WORK_HOURS.perWeekday.tuesday[1].startMinutes)}–22:30, giữa hai khung quán đóng. <b>CN và ngày lễ:</b> 10:30–22:00 liền.</li>
+          <li><b>Giờ mở:</b> Thứ Hai mở 12:00–14:00 (2 người), 17:30–21:30 (3 người). <b>T3–T7:</b> {minutesToTime(DEFAULT_WORK_HOURS.perWeekday.tuesday[0].startMinutes)}–{minutesToTime(LUNCH_END)} và {minutesToTime(DEFAULT_WORK_HOURS.perWeekday.tuesday[1].startMinutes)}–22:30, giữa hai khung quán đóng. <b>CN và ngày lễ:</b> 10:30–22:00 liền.</li>
           <li><b>Nghỉ phép:</b> ngày đã chọn ở tab Nhân viên không xếp ca; giờ định mức giữ nguyên. Phép năm: Vollzeit 24, Teilzeit 16, Minijob 8 ngày – vượt chỉ cảnh báo.</li>
           <li><b>Luật giờ làm:</b> tối đa <b>9 giờ công/ngày</b> (mức quán tự đặt, thấp hơn luật 10h); tối đa <b>6 ngày liên tiếp</b>. Trên 6h công nghỉ <b>30′</b>, trên 8h nghỉ <b>60′</b> – giờ nghỉ có mốc cụ thể, bắt đầu sau ít nhất 1h vào ca.</li>
           <li><b>Hợp đồng là giới hạn cứng:</b> các quán ký theo <b>giờ mỗi tháng</b> (xem tab Nhân viên). Không ai bị xếp vượt hợp đồng; thiếu thì báo cảnh báo vàng.</li>

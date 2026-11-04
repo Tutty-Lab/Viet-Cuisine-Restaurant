@@ -1,3 +1,4 @@
+import { cleaningTargetMinutes } from "../lib/cleaning";
 import { useMemo, useState } from "react";
 import { VacationPicker } from "./VacationPicker";
 import { vacationDatesInMonth, vacationDaysInYear, vacationEntitlement } from "../lib/availability";
@@ -66,6 +67,8 @@ type Draft = {
   maxDays: string;
   /** „Ngày nghỉ cố định" – die Kehrseite von availableWeekdays. */
   daysOff: WeekdayKey[];
+  cleaningEnabled: boolean;
+  cleaningHours: string;
   fixed: boolean;
   fixedStart: string; // "HH:MM"
   fixedEnd: string; // "HH:MM"
@@ -97,6 +100,8 @@ function draftFrom(emp?: Employee, partners: PartnerChoice = {}): Draft {
     hours: emp ? hoursText(emp.weeklyHours ?? Math.round((emp.targetMinutes / 60) * 100) / 100) : "169",
     maxDays: emp?.maxDaysPerWeek ? String(Math.min(6, emp.maxDaysPerWeek)) : "",
     daysOff: available && available.length > 0 ? WEEKDAY_ORDER.filter((day) => !available.includes(day)) : [],
+    cleaningEnabled: emp?.cleaningEnabled === true,
+    cleaningHours: hoursText(emp?.cleaningHoursPerMonth ?? 0),
     fixed: !!emp?.fixedShift,
     // Vorhandene feste Schicht übernehmen, sonst die Voreinstellung anzeigen.
     fixedStart: emp?.fixedShift ? minutesToTime(emp.fixedShift.startMinutes) : FIXED_START_DEFAULT,
@@ -162,6 +167,8 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
     // Monatsvertrag: die Stunden stehen direkt im Soll. Wochenvertrag: das
     // Monats-Soll wird je Monat daraus abgeleitet (contract.ts).
     targetMinutes: d.unit === "month" ? Math.round(hours * 60) : 0,
+    cleaningEnabled: d.cleaningEnabled || undefined,
+    cleaningHoursPerMonth: d.cleaningEnabled ? Math.max(0, Math.round((parseHours(d.cleaningHours) || 0) * 2) / 2) : undefined,
     weeklyHours: d.unit === "week" ? hours : undefined,
     // Ende muss nach Beginn liegen – sonst die feste Schicht ignorieren, statt
     // eine kaputte Zeitspanne zu speichern.
@@ -329,7 +336,7 @@ function EmployeeSummaryRow({
   /** Kurznamen der anderen Läden, in denen dieselbe Person arbeitet. */
   sharedWith: string[];
 }) {
-  const monatMin = monthlyTargetMinutesFor(emp, openDates, workHours);
+  const monatMin = monthlyTargetMinutesFor(emp, openDates, workHours) + cleaningTargetMinutes(emp);
   const monatH = monatMin / 60;
   const info = splitInfo(monatH, emp.employmentType);
   const ownRange = ownShiftRangeMinutes(emp);
@@ -356,6 +363,7 @@ function EmployeeSummaryRow({
         {emp.requiredOnHolidays ? (
           <span className="rounded bg-amber-50 text-amber-800 px-1.5 py-0.5">trực ngày lễ</span>
         ) : null}
+        {emp.cleaningEnabled && <span className="rounded bg-teal-50 text-teal-800 px-1.5 py-0.5">vệ sinh {emp.cleaningHoursPerMonth ?? 0}h/tháng</span>}
         {emp.fixedShift ? (
           <span className="rounded bg-indigo-50 text-indigo-700 px-1.5 py-0.5">
             ca cố định {minutesToTime(emp.fixedShift.startMinutes)}–
@@ -560,7 +568,7 @@ function EmployeeSheet({
   const toggle = (list: readonly WeekdayKey[], day: WeekdayKey) =>
     list.includes(day) ? list.filter((x) => x !== day) : [...list, day];
 
-  const monatMin = monthlyTargetMinutesFor({ ...draftToEmployee(d), id: employee?.id ?? "preview" }, openDates, workHours);
+  const monatMin = monthlyTargetMinutesFor({ ...draftToEmployee(d), id: employee?.id ?? "preview" }, openDates, workHours) + cleaningTargetMinutes({ ...draftToEmployee(d), id: "preview" });
   const info = splitInfo(monatMin / 60, d.employmentType);
   const shiftMinH = parseHours(d.shiftMin);
   const shiftMaxH = parseHours(d.shiftMax);
@@ -730,6 +738,14 @@ function EmployeeSheet({
                         ))}
                       </div>
                     </div>
+                  </SheetSection>
+
+                  <SheetSection title="Làm thêm vệ sinh">
+                    <CheckRow label="Làm thêm vệ sinh" note="Xếp thêm trong 07:00–10:00 vào ngày đã có ca, tối đa một người cùng lúc. Giờ vệ sinh cộng thêm vào hợp đồng; vẫn tối đa 9 giờ/ngày." checked={d.cleaningEnabled} onChange={(v) => set("cleaningEnabled", v)} />
+                    {d.cleaningEnabled && <div>
+                      <FieldLabel hint="giờ/tháng · bước 0,5 giờ">Tổng giờ làm thêm vệ sinh mỗi tháng</FieldLabel>
+                      <HoursInput value={d.cleaningHours} onChange={(v) => set("cleaningHours", v)} />
+                    </div>}
                   </SheetSection>
 
                   <SheetSection title="Ngày nghỉ cố định">

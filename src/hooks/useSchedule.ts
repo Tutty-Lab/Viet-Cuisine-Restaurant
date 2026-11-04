@@ -72,10 +72,7 @@ function normalizeSchedule(raw: Schedule | undefined, store: StoreConfig): Sched
     address: store.address,
     year: raw.year ?? base.year,
     month: raw.month ?? base.month,
-    workHours: {
-      ...normalizeWorkHours(raw.workHours),
-      closedWeekdays: { ...normalizeWorkHours(raw.workHours).closedWeekdays, monday: true },
-    },
+    workHours: normalizeWorkHours(raw.workHours),
     dateOverrides: Array.isArray(raw.dateOverrides) ? raw.dateOverrides : [],
     employees: withSharedPersonDefaults(raw.employees ?? [], store),
     shifts: raw.shifts ?? [],

@@ -177,10 +177,11 @@ function optionsFor(
   });
   // Split shift: one part in the first block, one in the last; the lunch closure is unpaid.
   const minimumEvening = partialWeek ? 120 : MIN_SHIFT;
-  if (paid >= MIN_SHIFT + minimumEvening && blocks.length >= 2) {
+  const minimumMorning = dayOf(date) === "monday" ? 120 : MIN_SHIFT;
+  if (paid >= minimumMorning + minimumEvening && blocks.length >= 2) {
     const first = blocks[0];
     const last = blocks[blocks.length - 1];
-    for (let morning = MIN_SHIFT; morning <= Math.min(paid - minimumEvening, first.endMinutes - first.startMinutes); morning += SLOT) {
+    for (let morning = minimumMorning; morning <= Math.min(paid - minimumEvening, first.endMinutes - first.startMinutes); morning += SLOT) {
       const evenings = placements(last, paid - morning, false);
       for (const early of placements(first, morning, true)) {
         for (const late of evenings) {
