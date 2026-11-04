@@ -21,7 +21,8 @@ const anonKey: string | undefined =
   env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
   env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
-export const supabase = url && anonKey ? createClient(url, anonKey) : null;
+const localFixture = import.meta.env.DEV && Boolean(import.meta.env.VITE_LOCAL_FIXTURE);
+export const supabase = !localFixture && url && anonKey ? createClient(url, anonKey) : null;
 
 /** true = Zugangsdaten vorhanden. Fehlen sie, läuft die App nur lokal weiter. */
 export const isRemoteConfigured = supabase !== null;

@@ -429,11 +429,12 @@ export function useSchedule(storeId: string) {
         storeConfig.staffingRules,
       );
       if (gaps.length > 0) {
+        // Coverage issues are warnings: keep the generated plan so the operator
+        // can review and adjust it instead of losing the whole schedule.
         setGenError(
-          coverageBlockReason(schedule.employees, gaps, month) ??
-            "Chưa tạo được lịch: có khung giờ mở cửa không đủ 2 người.",
+          "Cảnh báo: lịch đã được tạo nhưng còn thiếu người ở một số khung giờ.\n" +
+          (coverageBlockReason(schedule.employees, gaps, month) ?? "Kiểm tra báo cáo độ phủ."),
         );
-        return [];
       }
       // Anderer Monat als der offene: den offenen Plan erst ins Archiv legen,
       // sonst ginge er verloren. Derselbe Monat wird bewusst neu erzeugt.

@@ -23,8 +23,25 @@ registerSW({
   },
 });
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+async function start() {
+  // Load a private local snapshot once; subsequent reloads preserve test edits.
+  const fixture = import.meta.env.DEV && import.meta.env.VITE_LOCAL_FIXTURE;
+  if (fixture && localStorage.getItem("vietcuisine:local-fixture") !== fixture) {
+    const response = await fetch(fixture);
+    if (!response.ok) throw new Error(`Local fixture: HTTP ${response.status}`);
+    const state = await response.json();
+    if (!state?.schedule || !Array.isArray(state.schedule.employees)) throw new Error("Invalid local fixture");
+    localStorage.setItem("stundenzettel-app:v1:vietcuisine", JSON.stringify(state));
+    localStorage.setItem("vietcuisine:local-fixture", fixture);
+  }
+  ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>,
 );
+
+}
+void start().catch(error => {
+  console.error(error);
+  document.getElementById("root")!.textContent = "Không nạp được dữ liệu test local. Kiểm tra snapshot rồi tải lại.";
+});
